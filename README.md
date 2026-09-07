@@ -2,6 +2,8 @@
 
 > Track expenses, manage cash flow, and maintain financial clarity — month by month.
 
+**🌍 Live Demo:** [https://exptrack-m9no.onrender.com/](https://exptrack-m9no.onrender.com/)
+
 ![EXPTRACK Banner](https://img.shields.io/badge/EXPTRACK-Expense%20Tracker-1F6B38?style=for-the-badge&logo=money&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-Express-339933?style=flat&logo=node.js&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-Cloud%20DB-3ECF8E?style=flat&logo=supabase&logoColor=white)
