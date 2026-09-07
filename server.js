@@ -302,5 +302,6 @@ app.delete('/api/expenses/:id', authMiddleware, async (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Ledger is running at http://localhost:${PORT}`);
+  const isLocal = !process.env.RENDER;
+  console.log(`✅ EXPTRACK server running on port ${PORT}${isLocal ? ` → http://localhost:${PORT}` : ''}`);
 });
