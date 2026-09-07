@@ -1,0 +1,1486 @@
+:root {
+  --paper: #EEF0E6;
+  --paper-alt: #E4E7D8;
+  --ink: #1F2E22;
+  --ink-soft: #55634F;
+  --gold: #A97D25;
+  --brick: #93412F;
+  --brick-light: #FCEFEF;
+  --forest: #1F6B38;
+  --forest-light: #EAF4EC;
+  --rule: #C7CBB4;
+  --rule-strong: #A9AF92;
+  --white: #FAFAF4;
+}
+
+/* =====================================================
+   GLOBAL ANIMATION TOKENS
+   ===================================================== */
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ---- Login → Home: Full-page reveal curtain ---- */
+
+@keyframes curtainDrop {
+  0%   { transform: scaleY(1); }
+  100% { transform: scaleY(0); }
+}
+
+@keyframes curtainReveal {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.page-reveal-curtain {
+  position: fixed;
+  inset: 0;
+  background: var(--ink);
+  z-index: 3000;
+  transform-origin: top center;
+  animation: curtainDrop 0.55s cubic-bezier(0.77, 0, 0.18, 1) forwards;
+}
+
+/* Main app slides up on login */
+.ledger.app-entering {
+  animation: fadeSlideUp 0.45s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Auth modal exit zoom ---- */
+@keyframes authModalExit {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.06); }
+}
+
+.auth-card.is-exiting {
+  animation: authModalExit 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* =====================================================
+   BUTTON MICRO-INTERACTIONS
+   ===================================================== */
+
+/* Primary buttons: subtle press + lift on hover */
+.btn-primary {
+  transition: background 0.18s ease, transform 0.1s ease,
+              box-shadow 0.18s ease, opacity 0.15s ease;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(31, 46, 34, 0.18);
+}
+
+.btn-primary:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+
+/* Full-width auth button: pulse glow on hover */
+.btn-primary.full-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary.full-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 50%, transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.4s ease;
+}
+
+.btn-primary.full-btn:hover::after {
+  transform: translateX(100%);
+}
+
+/* Loading state shimmer on auth submit */
+.btn-primary.is-loading {
+  opacity: 0.75;
+  cursor: wait;
+  background: var(--ink-soft);
+}
+
+/* Success flash */
+@keyframes btnSuccess {
+  0%   { background: var(--forest); transform: scale(1.02); }
+  60%  { background: var(--forest); transform: scale(1); }
+  100% { background: var(--ink); transform: scale(1); }
+}
+
+.btn-primary.flash-success {
+  animation: btnSuccess 0.6s ease forwards;
+}
+
+/* Month nav arrows */
+.month-nav {
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.month-nav:hover {
+  transform: scale(1.12);
+}
+
+.month-nav:active {
+  transform: scale(0.9);
+}
+
+/* =====================================================
+   DEBIT / CREDIT TYPE CHIPS
+   ===================================================== */
+
+.type-chip {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.type-chip:hover {
+  transform: translateY(-1px);
+}
+
+.type-chip:active {
+  transform: scale(0.96);
+}
+
+/* Ripple effect on chip click */
+.type-chip .chip-ripple {
+  position: absolute;
+  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.5);
+  transform: scale(0);
+  pointer-events: none;
+  animation: chipRipple 0.45s ease-out forwards;
+}
+
+@keyframes chipRipple {
+  to { transform: scale(22); opacity: 0; }
+}
+
+/* Active chip entrance spring */
+@keyframes chipActivate {
+  0%   { transform: scale(0.92); }
+  60%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+.type-chip.active {
+  animation: chipActivate 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* =====================================================
+   PROFILE AVATAR / GREETING BUTTON
+   ===================================================== */
+
+.greeting-user-btn {
+  transition: transform 0.18s ease;
+}
+
+.greeting-user-btn:hover {
+  transform: scale(1.03);
+}
+
+.greeting-user-btn:active {
+  transform: scale(0.96);
+}
+
+/* Avatar spin on click */
+@keyframes avatarSpin {
+  0%   { transform: rotate(0deg) scale(1); }
+  40%  { transform: rotate(-12deg) scale(1.15); }
+  70%  { transform: rotate(8deg) scale(1.1); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+.profile-avatar-pill.is-clicking {
+  animation: avatarSpin 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* =====================================================
+   PILL FILTERS (breakdown & entries)
+   ===================================================== */
+
+.pill-btn {
+  position: relative;
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+
+.pill-btn:hover {
+  transform: translateY(-1px);
+}
+
+.pill-btn:active {
+  transform: scale(0.94);
+}
+
+.pill-btn.active {
+  animation: pillActivate 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes pillActivate {
+  0%   { transform: scale(0.9); }
+  60%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* =====================================================
+   ENTRY ROWS — stagger slide-in
+   ===================================================== */
+
+.entry-row {
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.entry-row:hover {
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
+/* Entry rows animate in with stagger (applied via JS) */
+.entry-row.anim-in {
+  animation: entrySlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes entrySlideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Row action buttons */
+.row-actions button {
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.row-actions button:hover {
+  transform: scale(1.2);
+}
+
+.row-actions button:active {
+  transform: scale(0.9);
+}
+
+/* =====================================================
+   MONTH LABEL — slide-out/in on nav
+   ===================================================== */
+
+@keyframes monthSlideLeft {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes monthSlideRight {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.month-bar h2.slide-left  { animation: monthSlideLeft  0.22s ease both; }
+.month-bar h2.slide-right { animation: monthSlideRight 0.22s ease both; }
+
+/* =====================================================
+   STAT CARDS — count-up pulse
+   ===================================================== */
+
+@keyframes statPop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.stat-value.popping {
+  animation: statPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* =====================================================
+   BREAKDOWN BARS — grow in from left
+   ===================================================== */
+
+.bar-fill {
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bar-row {
+  animation: fadeSlideUp 0.25s ease both;
+}
+
+/* =====================================================
+   PROFILE MODAL
+   ===================================================== */
+
+.modal-card {
+  animation: scaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Profile view ↔ edit mode transitions */
+#profile-view-mode, #profile-edit-form {
+  transition: opacity 0.15s ease;
+}
+
+#profile-view-mode:not([hidden]) {
+  animation: fadeSlideDown 0.2s ease both;
+}
+
+#profile-edit-form:not([hidden]) {
+  animation: fadeSlideDown 0.2s ease both;
+}
+
+/* Profile row hover */
+.profile-row {
+  transition: background 0.12s ease;
+}
+
+.profile-row:hover {
+  background: rgba(255,255,255,0.4);
+}
+
+/* =====================================================
+   AUTH MODAL — view switch transitions
+   ===================================================== */
+
+.auth-view {
+  transition: opacity 0.15s ease;
+}
+
+.auth-view:not([hidden]) {
+  animation: fadeSlideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Auth link buttons */
+.auth-link-btn {
+  transition: color 0.15s ease, transform 0.12s ease;
+}
+
+.auth-link-btn:hover {
+  transform: translateY(-1px);
+}
+
+.auth-link-btn:active {
+  transform: scale(0.95);
+}
+
+/* =====================================================
+   TOAST NOTIFICATION
+   ===================================================== */
+
+.greeting-toast {
+  transition: opacity 0.2s ease;
+}
+
+/* =====================================================
+   FORM INPUTS — focus lift
+   ===================================================== */
+
+#expense-form input,
+#expense-form select,
+.field-group input {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+#expense-form input:focus,
+#expense-form select:focus,
+.field-group input:focus {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(31,46,34,0.08);
+}
+
+/* =====================================================
+   GREETING BOX
+   ===================================================== */
+
+.greeting-box {
+  transition: box-shadow 0.18s ease, transform 0.15s ease;
+}
+
+.greeting-box:hover {
+  box-shadow: 0 3px 10px rgba(31,46,34,0.10);
+  transform: translateY(-1px);
+}
+
+/* =====================================================
+   HEADER — page load
+   ===================================================== */
+
+.ledger-header {
+  animation: fadeSlideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.entry-card {
+  animation: fadeSlideUp 0.4s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.month-view {
+  animation: fadeSlideUp 0.4s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* =====================================================
+   EMPTY NOTE
+   ===================================================== */
+
+.empty-note {
+  animation: fadeIn 0.3s ease both;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  font-family: 'Zilla Slab', serif;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink);
+}
+
+.ledger {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* ===== Header ===== */
+
+.ledger-header {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 18px;
+  margin-bottom: 32px;
+}
+
+.header-main-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ledger-title-group {
+  flex: 1;
+  min-width: 250px;
+}
+
+.ledger-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ledger-mark {
+  font-family: 'Zilla Slab', serif;
+  font-size: 30px;
+  color: var(--gold);
+}
+
+.ledger-title h1 {
+  font-size: 34px;
+  letter-spacing: 0.2px;
+}
+
+.ledger-sub {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+.header-profile-zone {
+  display: flex;
+  align-items: center;
+}
+
+.greeting-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  padding: 6px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.greeting-time {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.greeting-user-btn {
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--ink);
+}
+
+.greeting-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.greeting-user-btn:hover .greeting-name {
+  color: var(--forest);
+  text-decoration: underline;
+}
+
+.profile-avatar-pill {
+  width: 24px;
+  height: 24px;
+  background: var(--paper-alt);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
+/* ===== Layout ===== */
+
+.ledger-body {
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  gap: 40px;
+  align-items: start;
+}
+
+@media (max-width: 820px) {
+  .ledger-body { grid-template-columns: 1fr; }
+}
+
+/* ===== Entry card ===== */
+
+.entry-card {
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  padding: 24px;
+  position: sticky;
+  top: 24px;
+}
+
+.entry-card h2 {
+  font-size: 20px;
+  margin-bottom: 18px;
+}
+
+#expense-form {
+  display: flex;
+  flex-direction: column;
+}
+
+#expense-form label {
+  font-size: 12px;
+  text-transform: none;
+  color: var(--ink-soft);
+  margin: 14px 0 5px;
+}
+
+#expense-form label:first-of-type { margin-top: 0; }
+
+.optional { color: var(--rule-strong); }
+
+.type-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.type-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  color: var(--ink-soft);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.type-chip:hover {
+  background: var(--paper-alt);
+  color: var(--ink);
+}
+
+.type-chip.active.debit {
+  background: var(--brick);
+  border-color: var(--brick);
+  color: var(--white);
+}
+
+.type-chip.active.credit {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: var(--white);
+}
+
+.type-symbol {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+#expense-form input,
+#expense-form select {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 9px 10px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+
+#expense-form input:focus,
+#expense-form select:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.amount-input-box {
+  display: flex;
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+}
+
+.currency-prefix {
+  padding: 0 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  user-select: none;
+  background: var(--paper-alt);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--rule-strong);
+}
+
+select.currency-prefix {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 0 16px 0 8px;
+  background-color: var(--paper-alt);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%2355634F' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  border: none;
+  border-right: 1px solid var(--rule-strong);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+}
+
+select.currency-prefix:focus {
+  outline: none;
+  background-color: var(--paper);
+}
+
+.amount-input-box input {
+  flex: 1;
+  border: none !important;
+  background: transparent !important;
+  padding: 9px 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none !important;
+}
+
+.amount-input-box:focus-within {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.form-actions {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.btn-primary {
+  background: var(--ink);
+  color: var(--white);
+  border: none;
+  padding: 10px 18px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:hover { background: #14201A; }
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--brick);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.form-error {
+  color: var(--brick);
+  font-size: 13px;
+  margin: 12px 0 0;
+  min-height: 16px;
+}
+
+/* ===== Month view ===== */
+
+.month-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.month-bar h2 {
+  font-size: 24px;
+  min-width: 220px;
+}
+
+.month-nav {
+  background: none;
+  border: 1px solid var(--rule-strong);
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.month-nav:hover { background: var(--paper-alt); }
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  margin-bottom: 32px;
+}
+
+@media (max-width: 940px) {
+  .stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stat:nth-child(3),
+  .stat:nth-child(4) {
+    border-top: 1px solid var(--rule);
+  }
+}
+
+.stat {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat + .stat { border-left: 1px solid var(--rule); }
+
+@media (max-width: 940px) {
+  .stat:nth-child(3) { border-left: none; }
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.stat-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.stat-credit .stat-value {
+  color: var(--forest);
+}
+
+.stat-debit .stat-value {
+  color: var(--brick);
+}
+
+.stat-balance.positive .stat-value {
+  color: var(--forest);
+}
+
+.stat-balance.negative .stat-value {
+  color: var(--brick);
+}
+
+/* ===== Section Head Bar & Pill Filters ===== */
+
+.section-head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.section-head-bar h3 {
+  font-size: 16px;
+  margin-bottom: 0;
+  color: var(--ink-soft);
+  font-weight: 500;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.pill-filters {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--paper-alt);
+  padding: 3px;
+  border: 1px solid var(--rule);
+}
+
+.pill-btn {
+  border: none;
+  background: transparent;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.12s ease;
+}
+
+.pill-btn:hover {
+  color: var(--ink);
+}
+
+.pill-btn.active {
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+/* ===== Breakdown bars ===== */
+
+.breakdown { margin-bottom: 36px; }
+
+.breakdown-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 110px;
+  align-items: center;
+  gap: 12px;
+}
+
+.bar-cat {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.bar-track {
+  height: 10px;
+  background: var(--paper-alt);
+  position: relative;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--gold);
+}
+
+.bar-fill.bar-credit {
+  background: var(--forest);
+}
+
+.bar-fill.bar-debit {
+  background: var(--gold);
+}
+
+.bar-amount {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  text-align: right;
+}
+
+/* ===== Entries table ===== */
+
+.entries-head {
+  display: grid;
+  grid-template-columns: 85px 75px 120px 1fr 115px 55px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 8px;
+  gap: 8px;
+}
+
+.col-amount { text-align: right; }
+
+.entries-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.entry-row {
+  display: grid;
+  grid-template-columns: 85px 75px 120px 1fr 115px 55px;
+  gap: 8px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+
+.entry-row .cell-date { color: var(--ink-soft); font-size: 13px; }
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  text-align: center;
+  width: fit-content;
+}
+
+.type-badge.badge-debit {
+  background: var(--brick-light);
+  color: var(--brick);
+  border: 1px solid rgba(147, 65, 47, 0.3);
+}
+
+.type-badge.badge-credit {
+  background: var(--forest-light);
+  color: var(--forest);
+  border: 1px solid rgba(31, 107, 56, 0.3);
+}
+
+.entry-row .cell-amount {
+  font-family: 'IBM Plex Mono', monospace;
+  text-align: right;
+}
+
+.entry-row .cell-amount.credit-amount {
+  color: var(--forest);
+  font-weight: 500;
+}
+
+.entry-row .cell-amount.debit-amount {
+  color: var(--ink);
+}
+
+.cell-note {
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.row-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-soft);
+  padding: 2px;
+}
+
+.row-actions button:hover { color: var(--ink); }
+
+.row-actions .delete-btn:hover { color: var(--brick); }
+
+.empty-note {
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 16px 0;
+}
+
+/* ===== Modals ===== */
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(31, 46, 34, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.modal-card {
+  background: var(--white);
+  border: 1px solid var(--ink);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+  width: 100%;
+  max-width: 520px;
+  padding: 26px;
+  animation: modalFadeIn 0.18s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.profile-header-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-avatar-large {
+  width: 46px;
+  height: 46px;
+  background: var(--forest-light);
+  color: var(--forest);
+  border: 1px solid rgba(31, 107, 56, 0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  font-family: 'Zilla Slab', serif;
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+
+.modal-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.modal-close-btn:hover {
+  color: var(--brick);
+}
+
+/* ===== Profile View Mode ===== */
+
+.profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#profile-view-mode[hidden],
+#profile-edit-form[hidden] {
+  display: none !important;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+
+.profile-label {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.profile-value {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.sensitive-data-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-value.masked {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
+.btn-icon-reveal {
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  font-size: 11px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: var(--ink);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.btn-icon-reveal:hover {
+  background: var(--paper-alt);
+  border-color: var(--ink-soft);
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+/* ===== Profile Edit Mode ===== */
+
+.edit-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 500px) {
+  .edit-fields-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.field-group label {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.field-group input {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 9px 10px;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+}
+
+.field-group input:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.required {
+  color: var(--brick);
+}
+
+/* ===== Toast ===== */
+
+.greeting-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--ink);
+  color: var(--white);
+  padding: 12px 18px;
+  border-left: 4px solid var(--forest);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  z-index: 1100;
+  animation: toastSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.greeting-toast[hidden] {
+  display: none !important;
+}
+
+@keyframes toastSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== Auth Modal & View Transitions ===== */
+
+.auth-backdrop {
+  backdrop-filter: blur(5px);
+  background: rgba(31, 46, 34, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+.auth-backdrop[hidden] {
+  display: none !important;
+}
+
+.auth-card {
+  max-width: 460px;
+  background: var(--white);
+  border: 2px solid var(--ink);
+  box-shadow: 0 24px 50px rgba(15, 25, 18, 0.28), 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 32px 30px;
+  position: relative;
+}
+
+.auth-brand-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.auth-brand-badge .ledger-mark {
+  font-family: 'Zilla Slab', serif;
+  font-size: 28px;
+  color: var(--gold);
+}
+
+.auth-brand-name {
+  font-family: 'Zilla Slab', serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+}
+
+.auth-header {
+  text-align: center;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 18px;
+  display: block;
+}
+
+.auth-header .modal-title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.auth-header .modal-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 42px !important;
+}
+
+.btn-toggle-pw {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  font-size: 15px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+
+.btn-toggle-pw:hover {
+  background: var(--paper-alt);
+  color: var(--ink);
+}
+
+/* Below password section: left side "New user? Register" and right side "Forgot password?" */
+.auth-sub-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -4px 0 4px;
+  font-size: 13px;
+}
+
+.auth-link-btn {
+  background: none;
+  border: none;
+  color: var(--forest);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s, opacity 0.15s;
+}
+
+.auth-link-btn:hover {
+  color: var(--gold);
+}
+
+.auth-link-btn.highlight {
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.full-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.auth-actions {
+  margin-top: 6px;
+}
+
+.auth-footer-nav {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.form-success {
+  color: var(--forest);
+  background: var(--forest-light);
+  border-left: 3px solid var(--forest);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.form-success:empty {
+  display: none;
+}
+
+.danger-text {
+  color: var(--brick) !important;
+}
+
+
+.danger-text:hover {
+  background: var(--brick-light) !important;
+}
+

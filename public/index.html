@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EXPTRACK — Monthly Income & Expense Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Zilla+Slab:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="ledger">
+
+  <!-- ===== Header ===== -->
+  <header class="ledger-header">
+    <div class="header-main-row">
+      <div class="ledger-title-group">
+        <div class="ledger-title">
+          <span class="ledger-mark">§</span>
+          <h1>EXPTRACK</h1>
+        </div>
+        <p class="ledger-sub">Track expenses, manage cash flow, and maintain financial clarity month by month.</p>
+      </div>
+
+      <div class="header-profile-zone">
+        <div class="greeting-box" id="greeting-box">
+          <span class="greeting-time" id="greeting-time">Good evening</span>
+          <button type="button" class="greeting-user-btn" id="header-user-btn" title="View or Edit Profile">
+            <span class="greeting-name" id="greeting-name">Guest</span>
+            <span class="profile-avatar-pill" id="header-avatar">👤</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="ledger-body">
+
+    <!-- ===== Left: entry form (index card) ===== -->
+    <aside class="entry-card">
+      <h2 id="form-heading">New entry</h2>
+      <form id="expense-form" novalidate>
+        <input type="hidden" id="expense-id" />
+        <input type="hidden" id="entry-type" value="debit" />
+
+        <label>Transaction Type</label>
+        <div class="type-segmented" role="radiogroup" aria-label="Transaction Type">
+          <button type="button" class="type-chip active debit" data-type="debit" id="type-debit-btn">
+            <span class="type-symbol">−</span> Debited (Spend)
+          </button>
+          <button type="button" class="type-chip credit" data-type="credit" id="type-credit-btn">
+            <span class="type-symbol">+</span> Added (Income)
+          </button>
+        </div>
+
+        <label for="date">Date</label>
+        <input type="date" id="date" required />
+
+        <label for="category">Category</label>
+        <select id="category" required>
+          <option value="" disabled selected>Choose one</option>
+          <!-- Populated dynamically by script.js based on type -->
+        </select>
+
+        <label for="amount">Amount</label>
+        <div class="amount-input-box">
+          <select id="currency-select" class="currency-prefix" title="Select Currency">
+            <option value="₹" data-locale="en-IN" selected>₹ INR</option>
+            <option value="$" data-locale="en-US">$ USD</option>
+            <option value="€" data-locale="de-DE">€ EUR</option>
+            <option value="£" data-locale="en-GB">£ GBP</option>
+            <option value="¥" data-locale="ja-JP">¥ JPY</option>
+            <option value="AED " data-locale="en-AE">AED</option>
+            <option value="C$" data-locale="en-CA">C$ CAD</option>
+            <option value="A$" data-locale="en-AU">A$ AUD</option>
+          </select>
+          <input type="number" id="amount" min="0.01" step="0.01" placeholder="0.00" required />
+        </div>
+
+        <label for="description">Note <span class="optional">(optional)</span></label>
+        <input type="text" id="description" placeholder="What was this for?" maxlength="120" />
+
+        <div class="form-actions">
+          <button type="submit" id="submit-btn" class="btn-primary">Add entry</button>
+          <button type="button" id="cancel-edit" class="btn-text" hidden>Cancel edit</button>
+        </div>
+        <p class="form-error" id="form-error" role="alert"></p>
+      </form>
+    </aside>
+
+    <!-- ===== Right: month view ===== -->
+    <main class="month-view">
+
+      <div class="month-bar">
+        <button type="button" id="prev-month" class="month-nav" aria-label="Previous month">&larr;</button>
+        <h2 id="month-label">—</h2>
+        <button type="button" id="next-month" class="month-nav" aria-label="Next month">&rarr;</button>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat stat-credit">
+          <span class="stat-label">Total Added (+)</span>
+          <span class="stat-value" id="stat-credit">₹0.00</span>
+        </div>
+        <div class="stat stat-debit">
+          <span class="stat-label">Total Debited (−)</span>
+          <span class="stat-value" id="stat-debit">₹0.00</span>
+        </div>
+        <div class="stat stat-balance">
+          <span class="stat-label">Net Balance</span>
+          <span class="stat-value" id="stat-balance">₹0.00</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Entries logged</span>
+          <span class="stat-value" id="stat-count">0</span>
+        </div>
+      </div>
+
+      <section class="breakdown">
+        <div class="section-head-bar">
+          <h3>By category</h3>
+          <div class="pill-filters" id="breakdown-pills">
+            <button type="button" class="pill-btn active" data-breakdown="debit">Debits</button>
+            <button type="button" class="pill-btn" data-breakdown="credit">Credits</button>
+          </div>
+        </div>
+        <div id="breakdown-bars" class="breakdown-bars">
+          <p class="empty-note">Nothing logged yet this month.</p>
+        </div>
+      </section>
+
+      <section class="entries">
+        <div class="section-head-bar">
+          <h3>Entries</h3>
+          <div class="pill-filters" id="entries-filter-pills">
+            <button type="button" class="pill-btn active" data-filter="all">All</button>
+            <button type="button" class="pill-btn" data-filter="debit">Debits</button>
+            <button type="button" class="pill-btn" data-filter="credit">Added</button>
+          </div>
+        </div>
+        <div class="entries-head">
+          <span>Date</span>
+          <span>Type</span>
+          <span>Category</span>
+          <span>Note</span>
+          <span class="col-amount">Amount</span>
+          <span class="col-actions"></span>
+        </div>
+        <div id="entries-list" class="entries-list">
+          <p class="empty-note">No entries for this month yet. Add one on the left.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ===== Profile Modal ===== -->
+<div id="profile-modal" class="modal-backdrop" hidden>
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="profile-header-info">
+        <div class="profile-avatar-large" id="modal-avatar">👤</div>
+        <div>
+          <h2 id="modal-user-name" class="modal-title">User Profile</h2>
+        </div>
+      </div>
+      <button type="button" class="modal-close-btn" id="profile-close-btn" aria-label="Close modal">✕</button>
+    </div>
+
+    <!-- View Mode -->
+    <div id="profile-view-mode" class="profile-body">
+      <div class="profile-row">
+        <span class="profile-label">Full Name</span>
+        <span class="profile-value" id="view-fullname">—</span>
+      </div>
+      <div class="profile-row">
+        <span class="profile-label">Phone Number</span>
+        <span class="profile-value" id="view-phone">—</span>
+      </div>
+      <div class="profile-row">
+        <span class="profile-label">Email Address</span>
+        <span class="profile-value" id="view-email">—</span>
+      </div>
+      <div class="profile-row">
+        <span class="profile-label">Occupation</span>
+        <span class="profile-value" id="view-occupation">—</span>
+      </div>
+      <div class="profile-row">
+        <span class="profile-label">Monthly Budget Goal</span>
+        <span class="profile-value" id="view-budget">—</span>
+      </div>
+
+      <div class="profile-actions">
+        <button type="button" id="start-edit-profile-btn" class="btn-primary">Edit Profile</button>
+        <button type="button" id="logout-btn" class="btn-text danger-text">Sign Out</button>
+      </div>
+    </div>
+
+    <!-- Edit Mode -->
+    <form id="profile-edit-form" class="profile-body" novalidate hidden>
+      <div class="edit-fields-grid">
+        <div class="field-group full-width">
+          <label for="edit-fullname">Full Name <span class="required">*</span></label>
+          <input type="text" id="edit-fullname" required placeholder="e.g. Rahul Sharma" />
+        </div>
+        <div class="field-group">
+          <label for="edit-phone">Phone Number</label>
+          <input type="tel" id="edit-phone" placeholder="e.g. +91 98765 43210" />
+        </div>
+        <div class="field-group">
+          <label for="edit-email">Email Address <span class="required">*</span></label>
+          <input type="email" id="edit-email" placeholder="e.g. rahul@example.com" required />
+        </div>
+        <div class="field-group">
+          <label for="edit-occupation">Occupation</label>
+          <input type="text" id="edit-occupation" placeholder="e.g. Software Engineer" />
+        </div>
+        <div class="field-group">
+          <label for="edit-budget">Monthly Budget Goal</label>
+          <input type="number" id="edit-budget" min="0" step="100" placeholder="e.g. 50000" />
+        </div>
+
+        <div class="field-group full-width">
+          <label for="edit-new-password">Change Password <span class="optional">(leave blank to keep current)</span></label>
+          <div class="password-input-wrapper">
+            <input type="password" id="edit-new-password" placeholder="Enter new password (min. 4 characters)" autocomplete="new-password" />
+            <button type="button" class="btn-toggle-pw" id="toggle-edit-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="form-error" id="profile-form-error" role="alert"></p>
+
+      <div class="profile-actions">
+        <button type="submit" class="btn-primary">Save Changes</button>
+        <button type="button" id="cancel-edit-profile-btn" class="btn-text">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Authentication Modal (Login / Register / Forgot Password) ===== -->
+<div id="auth-modal" class="modal-backdrop auth-backdrop">
+  <div class="modal-card auth-card">
+    <div class="auth-brand-badge">
+      <span class="ledger-mark">§</span>
+      <span class="auth-brand-name">EXPTRACK</span>
+    </div>
+
+    <!-- 1. LOGIN VIEW -->
+    <div id="auth-login-view" class="auth-view active">
+      <div class="modal-header auth-header">
+        <div>
+          <h2 class="modal-title">Sign In</h2>
+          <p class="modal-sub">Enter your credentials to access your EXPTRACK ledger.</p>
+        </div>
+      </div>
+
+      <form id="auth-login-form" class="auth-form" novalidate>
+        <div class="field-group full-width">
+          <label for="auth-login-email">Email Address <span class="required">*</span></label>
+          <input type="email" id="auth-login-email" required placeholder="you@example.com" autocomplete="email" />
+        </div>
+
+        <div class="field-group full-width">
+          <label for="auth-login-password">Password <span class="required">*</span></label>
+          <div class="password-input-wrapper">
+            <input type="password" id="auth-login-password" required placeholder="••••••••" autocomplete="current-password" />
+            <button type="button" class="btn-toggle-pw" id="toggle-login-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+          </div>
+        </div>
+
+        <!-- Sub-password section with Left: New user? Register and Right: Forgot password? -->
+        <div class="auth-sub-row">
+          <button type="button" class="auth-link-btn" id="goto-register-btn">New user? Register</button>
+          <button type="button" class="auth-link-btn" id="goto-forgot-btn">Forgot password?</button>
+        </div>
+
+        <p class="form-error" id="auth-login-error" role="alert"></p>
+
+        <div class="profile-actions auth-actions">
+          <button type="submit" id="login-submit-btn" class="btn-primary full-btn">Sign In to EXPTRACK →</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 2. REGISTER VIEW -->
+    <div id="auth-register-view" class="auth-view" hidden>
+      <div class="modal-header auth-header">
+        <div>
+          <h2 class="modal-title">Create Account</h2>
+          <p class="modal-sub">Join EXPTRACK to start your clean, personal expense tracker.</p>
+        </div>
+      </div>
+
+      <form id="auth-register-form" class="auth-form" novalidate>
+        <div class="edit-fields-grid">
+          <div class="field-group full-width">
+            <label for="register-fullname">Full Name <span class="required">*</span></label>
+            <input type="text" id="register-fullname" required placeholder="e.g. John Doe" autocomplete="name" />
+          </div>
+
+          <div class="field-group full-width">
+            <label for="register-email">Email Address <span class="required">*</span></label>
+            <input type="email" id="register-email" required placeholder="you@example.com" autocomplete="email" />
+          </div>
+
+          <div class="field-group full-width">
+            <label for="register-password">Password <span class="required">*</span></label>
+            <div class="password-input-wrapper">
+              <input type="password" id="register-password" required placeholder="At least 4 characters" autocomplete="new-password" />
+              <button type="button" class="btn-toggle-pw" id="toggle-reg-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="register-phone">Phone Number (optional)</label>
+            <input type="tel" id="register-phone" placeholder="e.g. +91 98765 43210" autocomplete="tel" />
+          </div>
+
+          <div class="field-group">
+            <label for="register-budget">Monthly Budget Goal (optional)</label>
+            <input type="number" id="register-budget" min="0" step="100" placeholder="0.00" />
+          </div>
+        </div>
+
+        <p class="form-error" id="auth-register-error" role="alert"></p>
+
+        <div class="profile-actions auth-actions">
+          <button type="submit" id="register-submit-btn" class="btn-primary full-btn">Register & Start with Zero →</button>
+        </div>
+
+        <div class="auth-footer-nav">
+          <span>Already have an account?</span>
+          <button type="button" class="auth-link-btn highlight" id="goto-login-from-reg-btn">Sign In</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 3. FORGOT PASSWORD VIEW -->
+    <div id="auth-forgot-view" class="auth-view" hidden>
+      <div class="modal-header auth-header">
+        <div>
+          <h2 class="modal-title">Reset Password</h2>
+          <p class="modal-sub">Enter your registered email and choose a new password.</p>
+        </div>
+      </div>
+
+      <form id="auth-forgot-form" class="auth-form" novalidate>
+        <div class="field-group full-width">
+          <label for="forgot-email">Registered Email <span class="required">*</span></label>
+          <input type="email" id="forgot-email" required placeholder="you@example.com" autocomplete="email" />
+        </div>
+
+        <div class="field-group full-width">
+          <label for="forgot-new-password">New Password <span class="required">*</span></label>
+          <div class="password-input-wrapper">
+            <input type="password" id="forgot-new-password" required placeholder="Minimum 4 characters" autocomplete="new-password" />
+            <button type="button" class="btn-toggle-pw" id="toggle-forgot-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+          </div>
+        </div>
+
+        <p class="form-error" id="auth-forgot-error" role="alert"></p>
+        <p class="form-success" id="auth-forgot-success" role="alert"></p>
+
+        <div class="profile-actions auth-actions">
+          <button type="submit" id="forgot-submit-btn" class="btn-primary full-btn">Reset Password & Sign In →</button>
+        </div>
+
+        <div class="auth-footer-nav">
+          <button type="button" class="auth-link-btn" id="goto-login-from-forgot-btn">← Back to Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===== Greeting Notification Toast ===== -->
+<div id="greeting-toast" class="greeting-toast" hidden>
+  <span class="toast-icon">👋</span>
+  <span id="toast-message" class="toast-text">Good evening! Welcome to EXPTRACK.</span>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

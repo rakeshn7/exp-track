@@ -1,0 +1,40 @@
+# =============================================
+# EXPTRACK — .gitignore
+# =============================================
+
+# --- SECRET ENVIRONMENT VARIABLES (NEVER COMMIT) ---
+.env
+.env.local
+.env.*.local
+
+# --- Node.js ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# --- Local Data Files (contain user data — keep private) ---
+data/users.json
+data/expenses.json
+data/profile.json
+
+# --- OS Files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Build / Cache ---
+dist/
+.cache/
