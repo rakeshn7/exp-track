@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>EXPTRACK — Monthly Income & Expense Tracker</title>
+<title>EXPTRACK — Monthly Income &amp; Expense Tracker</title>
+<meta name="description" content="EXPTRACK: Track your monthly income and expenses with per-category breakdowns, budget goals, and multi-currency support." />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Zilla+Slab:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
@@ -96,6 +97,28 @@
         <button type="button" id="prev-month" class="month-nav" aria-label="Previous month">&larr;</button>
         <h2 id="month-label">—</h2>
         <button type="button" id="next-month" class="month-nav" aria-label="Next month">&rarr;</button>
+        <!-- Month jump dropdown (populated by JS from /api/expenses/months) -->
+        <select id="month-jump-select" class="month-jump-select" title="Jump to month" aria-label="Jump to a specific month">
+          <option value="">Jump to month…</option>
+        </select>
+      </div>
+
+      <!-- Budget progress bar (hidden when no budget set) -->
+      <div id="budget-progress-section" class="budget-progress-section" hidden>
+        <div class="budget-progress-header">
+          <span class="budget-progress-label" id="budget-progress-label">Budget used</span>
+          <span class="budget-progress-pct" id="budget-progress-pct">0%</span>
+        </div>
+        <div class="budget-progress-track" id="budget-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="budget-progress-fill" id="budget-progress-fill"></div>
+        </div>
+        <p class="budget-progress-sub" id="budget-progress-sub"></p>
+      </div>
+
+      <!-- Mixed-currency warning (hidden when only one currency) -->
+      <div id="mixed-currency-warning" class="mixed-currency-warning" hidden>
+        <span class="mixed-currency-icon">⚠</span>
+        <span id="mixed-currency-text">Multiple currencies detected — totals below are raw sums, <strong>not converted</strong>.</span>
       </div>
 
       <div class="stat-row">
@@ -228,9 +251,10 @@
         <div class="field-group full-width">
           <label for="edit-new-password">Change Password <span class="optional">(leave blank to keep current)</span></label>
           <div class="password-input-wrapper">
-            <input type="password" id="edit-new-password" placeholder="Enter new password (min. 4 characters)" autocomplete="new-password" />
+            <input type="password" id="edit-new-password" placeholder="Enter new password (min. 8 characters)" autocomplete="new-password" />
             <button type="button" class="btn-toggle-pw" id="toggle-edit-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
           </div>
+          <div class="pw-strength-hint" id="edit-pw-strength" aria-live="polite"></div>
         </div>
       </div>
 
@@ -313,9 +337,11 @@
           <div class="field-group full-width">
             <label for="register-password">Password <span class="required">*</span></label>
             <div class="password-input-wrapper">
-              <input type="password" id="register-password" required placeholder="At least 4 characters" autocomplete="new-password" />
+              <input type="password" id="register-password" required placeholder="At least 8 characters" autocomplete="new-password" />
               <button type="button" class="btn-toggle-pw" id="toggle-reg-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
             </div>
+            <!-- Password strength hint -->
+            <div class="pw-strength-hint" id="register-pw-strength" aria-live="polite"></div>
           </div>
 
           <div class="field-group">
@@ -332,7 +358,7 @@
         <p class="form-error" id="auth-register-error" role="alert"></p>
 
         <div class="profile-actions auth-actions">
-          <button type="submit" id="register-submit-btn" class="btn-primary full-btn">Register & Start with Zero →</button>
+          <button type="submit" id="register-submit-btn" class="btn-primary full-btn">Register &amp; Start with Zero →</button>
         </div>
 
         <div class="auth-footer-nav">
@@ -342,40 +368,69 @@
       </form>
     </div>
 
-    <!-- 3. FORGOT PASSWORD VIEW -->
+    <!-- 3. FORGOT PASSWORD VIEW (two-step) -->
     <div id="auth-forgot-view" class="auth-view" hidden>
       <div class="modal-header auth-header">
         <div>
           <h2 class="modal-title">Reset Password</h2>
-          <p class="modal-sub">Enter your registered email and choose a new password.</p>
+          <p class="modal-sub">Request a reset token, then use it to set a new password.</p>
         </div>
       </div>
 
-      <form id="auth-forgot-form" class="auth-form" novalidate>
-        <div class="field-group full-width">
-          <label for="forgot-email">Registered Email <span class="required">*</span></label>
-          <input type="email" id="forgot-email" required placeholder="you@example.com" autocomplete="email" />
-        </div>
-
-        <div class="field-group full-width">
-          <label for="forgot-new-password">New Password <span class="required">*</span></label>
-          <div class="password-input-wrapper">
-            <input type="password" id="forgot-new-password" required placeholder="Minimum 4 characters" autocomplete="new-password" />
-            <button type="button" class="btn-toggle-pw" id="toggle-forgot-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+      <!-- Step 1: Request reset token -->
+      <div id="forgot-step1">
+        <form id="auth-forgot-form" class="auth-form" novalidate>
+          <div class="field-group full-width">
+            <label for="forgot-email">Registered Email <span class="required">*</span></label>
+            <input type="email" id="forgot-email" required placeholder="you@example.com" autocomplete="email" />
           </div>
-        </div>
 
-        <p class="form-error" id="auth-forgot-error" role="alert"></p>
-        <p class="form-success" id="auth-forgot-success" role="alert"></p>
+          <p class="form-error" id="auth-forgot-error" role="alert"></p>
+          <p class="form-success" id="auth-forgot-success" role="alert"></p>
 
-        <div class="profile-actions auth-actions">
-          <button type="submit" id="forgot-submit-btn" class="btn-primary full-btn">Reset Password & Sign In →</button>
-        </div>
+          <div class="profile-actions auth-actions">
+            <button type="submit" id="forgot-submit-btn" class="btn-primary full-btn">Send Reset Token →</button>
+          </div>
 
-        <div class="auth-footer-nav">
-          <button type="button" class="auth-link-btn" id="goto-login-from-forgot-btn">← Back to Sign In</button>
+          <div class="auth-footer-nav">
+            <button type="button" class="auth-link-btn" id="goto-login-from-forgot-btn">← Back to Sign In</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Step 2: Enter token + new password (shown after step 1 succeeds) -->
+      <div id="forgot-step2" hidden>
+        <div class="forgot-step2-note">
+          <span class="forgot-step2-icon">📋</span>
+          <p>Check your email (or the server console if email is not configured yet) for your reset token. It expires in <strong>20 minutes</strong>.</p>
         </div>
-      </form>
+        <form id="auth-reset-form" class="auth-form" novalidate>
+          <div class="field-group full-width">
+            <label for="reset-token">Reset Token <span class="required">*</span></label>
+            <input type="text" id="reset-token" required placeholder="Paste token here" autocomplete="off" />
+          </div>
+
+          <div class="field-group full-width">
+            <label for="reset-new-password">New Password <span class="required">*</span></label>
+            <div class="password-input-wrapper">
+              <input type="password" id="reset-new-password" required placeholder="Minimum 8 characters" autocomplete="new-password" />
+              <button type="button" class="btn-toggle-pw" id="toggle-reset-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+            </div>
+            <div class="pw-strength-hint" id="reset-pw-strength" aria-live="polite"></div>
+          </div>
+
+          <p class="form-error" id="auth-reset-error" role="alert"></p>
+          <p class="form-success" id="auth-reset-success" role="alert"></p>
+
+          <div class="profile-actions auth-actions">
+            <button type="submit" id="reset-submit-btn" class="btn-primary full-btn">Set New Password →</button>
+          </div>
+
+          <div class="auth-footer-nav">
+            <button type="button" class="auth-link-btn" id="back-to-step1-btn">← Request a new token</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </div>

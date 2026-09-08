@@ -11,15 +11,13 @@ const CATEGORIES = {
     'Health & Medical',
     'Entertainment',
     'Shopping',
-    'Pocket Money',
-    'Borrowed',
     'Education',
     'Personal Care',
+    'Pocket Money',
+    'Borrowed',
     'Other'
   ],
   credit: [
-    'Pocket Money',
-    'Borrowed',
     'Salary',
     'Freelance / Business',
     'Investment & Dividends',
@@ -27,6 +25,8 @@ const CATEGORIES = {
     'Cashback & Refunds',
     'Rental Income',
     'Interest',
+    'Pocket Money',
+    'Borrowed',
     'Other'
   ]
 };
@@ -41,6 +41,7 @@ const state = {
   filterType: 'all',
   cachedExpenses: [],
   cachedSummary: null,
+  availableMonths: [],
 
   token: localStorage.getItem('ledger_auth_token') || null,
   profile: {
@@ -75,11 +76,24 @@ const el = {
   monthLabel: document.getElementById('month-label'),
   prevMonth: document.getElementById('prev-month'),
   nextMonth: document.getElementById('next-month'),
+  monthJumpSelect: document.getElementById('month-jump-select'),
 
   statCredit: document.getElementById('stat-credit'),
   statDebit: document.getElementById('stat-debit'),
   statBalance: document.getElementById('stat-balance'),
   statCount: document.getElementById('stat-count'),
+
+  // Budget progress
+  budgetSection: document.getElementById('budget-progress-section'),
+  budgetLabel: document.getElementById('budget-progress-label'),
+  budgetPct: document.getElementById('budget-progress-pct'),
+  budgetTrack: document.getElementById('budget-progress-track'),
+  budgetFill: document.getElementById('budget-progress-fill'),
+  budgetSub: document.getElementById('budget-progress-sub'),
+
+  // Mixed-currency warning
+  mixedCurrencyWarning: document.getElementById('mixed-currency-warning'),
+  mixedCurrencyText: document.getElementById('mixed-currency-text'),
 
   breakdownPills: document.getElementById('breakdown-pills'),
   breakdownBars: document.getElementById('breakdown-bars'),
@@ -118,6 +132,7 @@ const el = {
   editBudget: document.getElementById('edit-budget'),
   editNewPassword: document.getElementById('edit-new-password'),
   toggleEditPw: document.getElementById('toggle-edit-pw'),
+  editPwStrength: document.getElementById('edit-pw-strength'),
 
   // Auth Modal & Views
   authModal: document.getElementById('auth-modal'),
@@ -147,17 +162,29 @@ const el = {
   registerPhone: document.getElementById('register-phone'),
   registerBudget: document.getElementById('register-budget'),
   toggleRegPw: document.getElementById('toggle-reg-pw'),
+  registerPwStrength: document.getElementById('register-pw-strength'),
   authRegisterError: document.getElementById('auth-register-error'),
   registerSubmitBtn: document.getElementById('register-submit-btn'),
 
-  // Forgot Password Form
+  // Forgot Password (Step 1)
   authForgotForm: document.getElementById('auth-forgot-form'),
   forgotEmail: document.getElementById('forgot-email'),
-  forgotNewPassword: document.getElementById('forgot-new-password'),
-  toggleForgotPw: document.getElementById('toggle-forgot-pw'),
   authForgotError: document.getElementById('auth-forgot-error'),
   authForgotSuccess: document.getElementById('auth-forgot-success'),
   forgotSubmitBtn: document.getElementById('forgot-submit-btn'),
+  forgotStep1: document.getElementById('forgot-step1'),
+  forgotStep2: document.getElementById('forgot-step2'),
+  backToStep1Btn: document.getElementById('back-to-step1-btn'),
+
+  // Reset Password (Step 2)
+  authResetForm: document.getElementById('auth-reset-form'),
+  resetToken: document.getElementById('reset-token'),
+  resetNewPassword: document.getElementById('reset-new-password'),
+  toggleResetPw: document.getElementById('toggle-reset-pw'),
+  resetPwStrength: document.getElementById('reset-pw-strength'),
+  authResetError: document.getElementById('auth-reset-error'),
+  authResetSuccess: document.getElementById('auth-reset-success'),
+  resetSubmitBtn: document.getElementById('reset-submit-btn'),
 
   // Toast
   greetingToast: document.getElementById('greeting-toast'),
@@ -168,7 +195,6 @@ const el = {
 
 /** Trigger the full-page curtain reveal when entering the home screen */
 function playCurtainReveal() {
-  // Remove any old curtain
   const old = document.getElementById('page-reveal-curtain');
   if (old) old.remove();
 
@@ -177,11 +203,10 @@ function playCurtainReveal() {
   curtain.className = 'page-reveal-curtain';
   document.body.appendChild(curtain);
 
-  // Add entering class to the ledger app
   const ledger = document.querySelector('.ledger');
   if (ledger) {
     ledger.classList.remove('app-entering');
-    void ledger.offsetWidth; // force reflow
+    void ledger.offsetWidth;
     ledger.classList.add('app-entering');
   }
 
@@ -224,11 +249,11 @@ function animateAvatarClick() {
 }
 
 /** Flash a stat value element with pop animation */
-function popStatValue(el) {
-  el.classList.remove('popping');
-  void el.offsetWidth;
-  el.classList.add('popping');
-  el.addEventListener('animationend', () => el.classList.remove('popping'), { once: true });
+function popStatValue(statEl) {
+  statEl.classList.remove('popping');
+  void statEl.offsetWidth;
+  statEl.classList.add('popping');
+  statEl.addEventListener('animationend', () => statEl.classList.remove('popping'), { once: true });
 }
 
 /** Animate month label slide-in based on direction */
@@ -263,7 +288,6 @@ async function authFetch(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
 
   if (response.status === 401) {
-    // Unauthenticated or session expired
     handleSessionExpired();
     throw new Error('Session expired or authentication required.');
   }
@@ -281,6 +305,7 @@ function handleSessionExpired() {
   renderStats({});
   renderBreakdown();
   renderFilteredEntries();
+  hideBudgetProgress();
   openAuthModal('login');
 }
 
@@ -356,17 +381,60 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ----------------- Password Strength Hint -----------------
+
+/**
+ * Evaluate password strength and update a hint element.
+ * @param {string} pw   - plaintext password
+ * @param {HTMLElement} hintEl - the .pw-strength-hint container
+ */
+function updatePwStrength(pw, hintEl) {
+  if (!hintEl) return;
+  if (!pw) {
+    hintEl.textContent = '';
+    hintEl.className = 'pw-strength-hint';
+    return;
+  }
+
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+  let label, cls;
+  if (score <= 1)      { label = '⬤ Weak';   cls = 'pw-weak'; }
+  else if (score <= 3) { label = '⬤ Fair';   cls = 'pw-fair'; }
+  else                 { label = '⬤ Strong'; cls = 'pw-strong'; }
+
+  hintEl.textContent = label;
+  hintEl.className = `pw-strength-hint ${cls}`;
+}
+
+// Wire strength hints to password inputs
+if (el.registerPassword && el.registerPwStrength) {
+  el.registerPassword.addEventListener('input', (e) => updatePwStrength(e.target.value, el.registerPwStrength));
+}
+if (el.resetNewPassword && el.resetPwStrength) {
+  el.resetNewPassword.addEventListener('input', (e) => updatePwStrength(e.target.value, el.resetPwStrength));
+}
+if (el.editNewPassword && el.editPwStrength) {
+  el.editNewPassword.addEventListener('input', (e) => updatePwStrength(e.target.value, el.editPwStrength));
+}
+
 // ----------------- Toast Notification -----------------
 
 let toastTimeout = null;
-function showGreetingToast(message) {
+function showGreetingToast(message, isWarning = false) {
   if (!el.greetingToast) return;
   el.toastMessage.textContent = message;
   el.greetingToast.hidden = false;
+  el.greetingToast.classList.toggle('toast-warning', isWarning);
   if (toastTimeout) clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
     el.greetingToast.hidden = true;
-  }, 4000);
+  }, isWarning ? 6000 : 4000);
 }
 
 // ----------------- Auth Views Switching -----------------
@@ -381,7 +449,6 @@ function closeAuthModal() {
 }
 
 function showAuthView(viewName) {
-  // Hide all views first
   el.authLoginView.hidden = true;
   el.authRegisterView.hidden = true;
   el.authForgotView.hidden = true;
@@ -391,43 +458,37 @@ function showAuthView(viewName) {
   el.authRegisterError.textContent = '';
   el.authForgotError.textContent = '';
   el.authForgotSuccess.textContent = '';
+  if (el.authResetError) el.authResetError.textContent = '';
+  if (el.authResetSuccess) el.authResetSuccess.textContent = '';
 
   if (viewName === 'register') {
     el.authRegisterView.hidden = false;
     el.registerFullname.focus();
   } else if (viewName === 'forgot') {
     el.authForgotView.hidden = false;
+    // Always start at step 1 when navigating to forgot view
+    showForgotStep(1);
     el.forgotEmail.focus();
   } else {
-    // Default: login view
     el.authLoginView.hidden = false;
     el.authLoginEmail.focus();
   }
 }
 
-// Sub-password buttons: Left side "New user? Register" and Right side "Forgot password?"
-el.gotoRegisterBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  showAuthView('register');
-});
+function showForgotStep(step) {
+  el.forgotStep1.hidden = step !== 1;
+  el.forgotStep2.hidden = step !== 2;
+}
 
-el.gotoForgotBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  showAuthView('forgot');
-});
-
-el.gotoLoginFromRegBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  showAuthView('login');
-});
-
-el.gotoLoginFromForgotBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  showAuthView('login');
-});
+el.gotoRegisterBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('register'); });
+el.gotoForgotBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('forgot'); });
+el.gotoLoginFromRegBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('login'); });
+el.gotoLoginFromForgotBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('login'); });
+el.backToStep1Btn.addEventListener('click', (e) => { e.preventDefault(); showForgotStep(1); });
 
 // Password visibility toggles
 function setupPasswordToggle(btn, input) {
+  if (!btn || !input) return;
   btn.addEventListener('click', () => {
     if (input.type === 'password') {
       input.type = 'text';
@@ -441,7 +502,7 @@ function setupPasswordToggle(btn, input) {
 
 setupPasswordToggle(el.toggleLoginPw, el.authLoginPassword);
 setupPasswordToggle(el.toggleRegPw, el.registerPassword);
-setupPasswordToggle(el.toggleForgotPw, el.forgotNewPassword);
+setupPasswordToggle(el.toggleResetPw, el.resetNewPassword);
 if (el.toggleEditPw && el.editNewPassword) {
   setupPasswordToggle(el.toggleEditPw, el.editNewPassword);
 }
@@ -479,30 +540,20 @@ el.authLoginForm.addEventListener('submit', async (e) => {
       throw new Error(data.error || 'Login failed. Please check your credentials.');
     }
 
-    // Successfully logged in — flash the button green briefly
     el.loginSubmitBtn.classList.add('flash-success');
     state.token = data.token;
     localStorage.setItem('ledger_auth_token', data.token);
 
-    state.profile = {
-      ...data.user,
-      loggedIn: true
-    };
-
+    state.profile = { ...data.user, loggedIn: true };
     updateGreeting();
     renderProfileView();
 
-    const timeGreeting = getTimeGreeting();
-
-    // Play curtain reveal: close modal WITH animation, then reveal home
     animateAuthCardOut(() => {
       closeAuthModal();
       playCurtainReveal();
     });
 
-    showGreetingToast(`${timeGreeting}, ${state.profile.fullName}! Welcome back.`);
-
-    // Existing user: continue and load their existing entries from database!
+    showGreetingToast(`${getTimeGreeting()}, ${state.profile.fullName}! Welcome back.`);
     await loadMonth();
   } catch (err) {
     el.authLoginError.textContent = err.message;
@@ -539,8 +590,8 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
     el.registerSubmitBtn.textContent = 'Register & Start with Zero →';
     return;
   }
-  if (!password || password.length < 4) {
-    el.authRegisterError.textContent = 'Password must be at least 4 characters long.';
+  if (!password || password.length < 8) {
+    el.authRegisterError.textContent = 'Password must be at least 8 characters long.';
     el.registerSubmitBtn.disabled = false;
     el.registerSubmitBtn.textContent = 'Register & Start with Zero →';
     return;
@@ -558,19 +609,12 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
       throw new Error(data.error || 'Failed to register account.');
     }
 
-    // Account created! Set session and user state
     state.token = data.token;
     localStorage.setItem('ledger_auth_token', data.token);
-
-    state.profile = {
-      ...data.user,
-      loggedIn: true
-    };
+    state.profile = { ...data.user, loggedIn: true };
 
     updateGreeting();
     renderProfileView();
-
-    // New user: starts with zero! — animate reveal
     state.month = currentMonthString();
 
     animateAuthCardOut(() => {
@@ -589,27 +633,20 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
   }
 });
 
-// 3. Reset Password
+// 3a. Forgot Password — Step 1: Request reset token
 el.authForgotForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   el.authForgotError.textContent = '';
   el.authForgotSuccess.textContent = '';
   el.forgotSubmitBtn.disabled = true;
-  el.forgotSubmitBtn.textContent = 'Updating password...';
+  el.forgotSubmitBtn.textContent = 'Sending token...';
 
   const email = el.forgotEmail.value.trim();
-  const newPassword = el.forgotNewPassword.value;
 
   if (!email) {
     el.authForgotError.textContent = 'Please enter your registered email address.';
     el.forgotSubmitBtn.disabled = false;
-    el.forgotSubmitBtn.textContent = 'Reset Password & Sign In →';
-    return;
-  }
-  if (!newPassword || newPassword.length < 4) {
-    el.authForgotError.textContent = 'New password must be at least 4 characters.';
-    el.forgotSubmitBtn.disabled = false;
-    el.forgotSubmitBtn.textContent = 'Reset Password & Sign In →';
+    el.forgotSubmitBtn.textContent = 'Send Reset Token →';
     return;
   }
 
@@ -617,39 +654,89 @@ el.authForgotForm.addEventListener('submit', async (e) => {
     const res = await fetch(`${AUTH_API}/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, newPassword })
+      body: JSON.stringify({ email })
     });
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Password reset failed.');
+      throw new Error(data.error || 'Failed to send reset token.');
     }
 
-    el.authForgotSuccess.textContent = 'Password reset successfully! Redirecting to Sign In...';
+    // Move to step 2 regardless — prevents user enumeration
+    el.authForgotSuccess.textContent = 'Token sent (or generated)! Check your email or server logs. Paste it below.';
     setTimeout(() => {
-      showAuthView('login');
-      el.authLoginEmail.value = email;
-      el.authLoginPassword.value = '';
-      el.authLoginPassword.focus();
-    }, 1500);
+      showForgotStep(2);
+      if (el.resetToken) el.resetToken.focus();
+    }, 1200);
   } catch (err) {
     el.authForgotError.textContent = err.message;
   } finally {
     el.forgotSubmitBtn.disabled = false;
-    el.forgotSubmitBtn.textContent = 'Reset Password & Sign In →';
+    el.forgotSubmitBtn.textContent = 'Send Reset Token →';
   }
 });
+
+// 3b. Reset Password — Step 2: Submit token + new password
+if (el.authResetForm) {
+  el.authResetForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    el.authResetError.textContent = '';
+    el.authResetSuccess.textContent = '';
+    el.resetSubmitBtn.disabled = true;
+    el.resetSubmitBtn.textContent = 'Setting password...';
+
+    const token = el.resetToken.value.trim();
+    const newPassword = el.resetNewPassword.value;
+
+    if (!token) {
+      el.authResetError.textContent = 'Please paste the reset token from your email or server logs.';
+      el.resetSubmitBtn.disabled = false;
+      el.resetSubmitBtn.textContent = 'Set New Password →';
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      el.authResetError.textContent = 'New password must be at least 8 characters.';
+      el.resetSubmitBtn.disabled = false;
+      el.resetSubmitBtn.textContent = 'Set New Password →';
+      return;
+    }
+
+    try {
+      const res = await fetch(`${AUTH_API}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Password reset failed.');
+      }
+
+      el.authResetSuccess.textContent = 'Password reset successfully! Redirecting to Sign In…';
+      setTimeout(() => {
+        showAuthView('login');
+        el.authLoginEmail.value = el.forgotEmail.value || '';
+        el.authLoginPassword.value = '';
+        el.authLoginPassword.focus();
+      }, 1500);
+    } catch (err) {
+      el.authResetError.textContent = err.message;
+    } finally {
+      el.resetSubmitBtn.disabled = false;
+      el.resetSubmitBtn.textContent = 'Set New Password →';
+    }
+  });
+}
 
 // ----------------- Profile Modal & Profile Management -----------------
 
 function updateGreeting() {
-  const timeGreeting = getTimeGreeting();
-  el.greetingTime.textContent = timeGreeting;
+  el.greetingTime.textContent = getTimeGreeting();
 
   if (state.profile.loggedIn && state.profile.fullName) {
     el.greetingName.textContent = state.profile.fullName;
-    const initials = getInitials(state.profile.fullName);
-    el.headerAvatar.textContent = initials;
+    el.headerAvatar.textContent = getInitials(state.profile.fullName);
   } else {
     el.greetingName.textContent = 'Sign In / Register';
     el.headerAvatar.textContent = '👤';
@@ -658,9 +745,7 @@ function updateGreeting() {
 
 function renderProfileView() {
   const p = state.profile;
-  const initials = getInitials(p.fullName);
-
-  el.modalAvatar.textContent = initials;
+  el.modalAvatar.textContent = getInitials(p.fullName);
   el.modalUserName.textContent = p.fullName || 'User Profile';
   el.viewFullName.textContent = p.fullName || '—';
   el.viewPhone.textContent = p.phone || '—';
@@ -700,8 +785,6 @@ window.addEventListener('click', (e) => {
   }
 });
 
-
-
 // Edit Profile Trigger
 el.startEditProfileBtn.addEventListener('click', () => {
   const p = state.profile;
@@ -711,6 +794,7 @@ el.startEditProfileBtn.addEventListener('click', () => {
   el.editOccupation.value = p.occupation || '';
   el.editBudget.value = p.monthlyBudget || '';
   if (el.editNewPassword) el.editNewPassword.value = '';
+  if (el.editPwStrength) { el.editPwStrength.textContent = ''; el.editPwStrength.className = 'pw-strength-hint'; }
   el.profileFormError.textContent = '';
 
   el.profileViewMode.hidden = true;
@@ -744,8 +828,8 @@ el.profileEditForm.addEventListener('submit', async (e) => {
   };
 
   const newPassword = el.editNewPassword ? el.editNewPassword.value.trim() : '';
-  if (newPassword && newPassword.length < 4) {
-    el.profileFormError.textContent = 'New password must be at least 4 characters long.';
+  if (newPassword && newPassword.length < 8) {
+    el.profileFormError.textContent = 'New password must be at least 8 characters long.';
     return;
   }
   if (newPassword) {
@@ -764,35 +848,25 @@ el.profileEditForm.addEventListener('submit', async (e) => {
     }
 
     if (data.passwordChanged) {
-      // Clear session token so user is forced to log in again with new password
+      // Token is now invalid (tokenVersion bumped server-side) — force re-login
       state.token = null;
       localStorage.removeItem('ledger_auth_token');
-      state.profile = {
-        id: null,
-        fullName: '',
-        phone: '',
-        email: '',
-        occupation: '',
-        monthlyBudget: null,
-        loggedIn: false
-      };
+      state.profile = { id: null, fullName: '', phone: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
 
       closeModals();
       updateGreeting();
-
-      // Reset ledger statistics and clear displayed entries
       state.cachedExpenses = [];
       state.cachedSummary = null;
       renderStats({});
       renderBreakdown();
       renderFilteredEntries();
+      hideBudgetProgress();
 
-      // Immediately display login modal asking user to log in with the new password
       openAuthModal('login');
-      el.authLoginEmail.value = payload.email || state.profile.email;
+      el.authLoginEmail.value = payload.email || '';
       el.authLoginPassword.value = '';
       el.authLoginPassword.focus();
-      showGreetingToast('Password changed successfully! Please sign in with your new password.');
+      showGreetingToast('Password changed. Please sign in with your new password.');
       return;
     }
 
@@ -800,51 +874,41 @@ el.profileEditForm.addEventListener('submit', async (e) => {
     updateGreeting();
     renderProfileView();
 
+    // Refresh budget progress if budget changed
+    if (state.cachedSummary) {
+      renderBudgetProgress(state.cachedSummary);
+    }
+
     el.profileEditForm.hidden = true;
     el.profileViewMode.hidden = false;
-
     showGreetingToast(`Profile updated successfully, ${state.profile.fullName}!`);
   } catch (err) {
     el.profileFormError.textContent = err.message;
   }
 });
 
-
 // Sign Out
 el.logoutBtn.addEventListener('click', async () => {
-
   try {
     await fetch(`${AUTH_API}/logout`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${state.token}`
-      }
+      headers: { 'Authorization': `Bearer ${state.token}` }
     });
   } catch (err) {}
 
   state.token = null;
   localStorage.removeItem('ledger_auth_token');
-  state.profile = {
-    id: null,
-    fullName: '',
-    phone: '',
-    email: '',
-    occupation: '',
-    monthlyBudget: null,
-    loggedIn: false
-  };
+  state.profile = { id: null, fullName: '', phone: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
 
   closeModals();
   updateGreeting();
-
-  // Reset ledger amounts to zero and clear displayed entries
   state.cachedExpenses = [];
   state.cachedSummary = null;
   renderStats({});
   renderBreakdown();
   renderFilteredEntries();
+  hideBudgetProgress();
 
-  // Immediately display the Login modal so another user can sign in
   openAuthModal('login');
   showGreetingToast('You have signed out. Sign in to continue.');
 });
@@ -901,34 +965,113 @@ function setEntryType(type, keepCategory = false) {
   }
 }
 
+// ----------------- Budget Progress -----------------
+
+function renderBudgetProgress(summary) {
+  const budget = state.profile.monthlyBudget;
+  if (!budget || budget <= 0) {
+    hideBudgetProgress();
+    return;
+  }
+
+  const totalDebit = Number(summary.totalDebit || 0);
+  const pct = Math.min(Math.round((totalDebit / budget) * 100), 999);
+  const displayPct = Math.min(pct, 100); // cap fill bar at 100%
+
+  el.budgetSection.hidden = false;
+  el.budgetPct.textContent = `${pct}%`;
+  el.budgetTrack.setAttribute('aria-valuenow', displayPct);
+  el.budgetFill.style.width = `${displayPct}%`;
+
+  // Colour states
+  el.budgetFill.classList.remove('fill-ok', 'fill-warn', 'fill-over');
+  el.budgetSection.classList.remove('budget-warn', 'budget-over');
+
+  if (pct >= 100) {
+    el.budgetFill.classList.add('fill-over');
+    el.budgetSection.classList.add('budget-over');
+    el.budgetLabel.textContent = 'Budget exceeded!';
+    el.budgetSub.textContent = `Spent ${formatMoney(totalDebit)} of ${formatMoney(budget)} — over by ${formatMoney(totalDebit - budget)}.`;
+  } else if (pct >= 80) {
+    el.budgetFill.classList.add('fill-warn');
+    el.budgetSection.classList.add('budget-warn');
+    el.budgetLabel.textContent = 'Approaching budget limit';
+    el.budgetSub.textContent = `Spent ${formatMoney(totalDebit)} of ${formatMoney(budget)} (${formatMoney(budget - totalDebit)} remaining).`;
+  } else {
+    el.budgetFill.classList.add('fill-ok');
+    el.budgetLabel.textContent = 'Budget used this month';
+    el.budgetSub.textContent = `Spent ${formatMoney(totalDebit)} of ${formatMoney(budget)} (${formatMoney(budget - totalDebit)} remaining).`;
+  }
+}
+
+function hideBudgetProgress() {
+  if (el.budgetSection) el.budgetSection.hidden = true;
+}
+
+// ----------------- Month Jump Dropdown -----------------
+
+function updateMonthJumpDropdown(months) {
+  state.availableMonths = months || [];
+  if (!el.monthJumpSelect) return;
+
+  el.monthJumpSelect.innerHTML = '<option value="">Jump to month…</option>';
+  months.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = monthLabel(m);
+    if (m === state.month) opt.selected = true;
+    el.monthJumpSelect.appendChild(opt);
+  });
+}
+
+if (el.monthJumpSelect) {
+  el.monthJumpSelect.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (!val) return;
+    state.month = val;
+    el.monthLabel.textContent = monthLabel(val);
+    loadMonth();
+  });
+}
+
 // ----------------- Data Loading (Per User) -----------------
 
 async function loadMonth() {
   el.monthLabel.textContent = monthLabel(state.month);
 
-  // If unauthenticated: display zero statistics and empty ledger
+  // Sync the jump dropdown selection
+  if (el.monthJumpSelect) {
+    el.monthJumpSelect.value = state.month;
+  }
+
   if (!state.profile.loggedIn || !state.token) {
     renderStats({});
     el.breakdownBars.innerHTML = '<p class="empty-note">Please sign in to view your category breakdown.</p>';
     el.entriesList.innerHTML = '<p class="empty-note">Please sign in to view your ledger entries.</p>';
+    hideBudgetProgress();
     return;
   }
 
   try {
-    const [expensesRes, summaryRes] = await Promise.all([
+    const [expensesRes, summaryRes, monthsRes] = await Promise.all([
       authFetch(`${API}?month=${state.month}`),
-      authFetch(`${API}/summary?month=${state.month}`)
+      authFetch(`${API}/summary?month=${state.month}`),
+      authFetch(`${API}/months`)
     ]);
 
     const expenses = await expensesRes.json();
     const summary = await summaryRes.json();
+    const months = await monthsRes.json();
 
     state.cachedExpenses = expenses || [];
     state.cachedSummary = summary || {};
 
     renderStats(state.cachedSummary);
+    renderBudgetProgress(state.cachedSummary);
+    renderMixedCurrencyWarning(state.cachedSummary);
     renderBreakdown();
     renderFilteredEntries();
+    updateMonthJumpDropdown(months);
   } catch (err) {
     console.error('Failed to load ledger data:', err);
   }
@@ -954,8 +1097,32 @@ function renderStats(summary = {}) {
 
   el.statCount.textContent = summary.count || 0;
 
-  // Pop animations on stat values
   [el.statCredit, el.statDebit, el.statBalance, el.statCount].forEach(popStatValue);
+}
+
+function renderMixedCurrencyWarning(summary) {
+  if (!el.mixedCurrencyWarning) return;
+
+  if (!summary || !summary.mixedCurrencies) {
+    el.mixedCurrencyWarning.hidden = true;
+    return;
+  }
+
+  el.mixedCurrencyWarning.hidden = false;
+
+  // Build per-currency breakdown text
+  const breakdown = summary.currencyBreakdown || {};
+  const parts = Object.entries(breakdown).map(([cur, totals]) => {
+    const sym = cur.trim();
+    const items = [];
+    if (totals.totalCredit > 0) items.push(`+${sym}${totals.totalCredit.toFixed(2)}`);
+    if (totals.totalDebit > 0)  items.push(`−${sym}${totals.totalDebit.toFixed(2)}`);
+    return items.join(' / ');
+  });
+
+  const breakdownStr = parts.length ? ` (${parts.join('  |  ')})` : '';
+  el.mixedCurrencyText.innerHTML =
+    `⚠ Multiple currencies detected — totals are raw sums, <strong>not converted</strong>.${escapeHtml(breakdownStr)}`;
 }
 
 function renderBreakdown() {
@@ -1000,9 +1167,30 @@ function renderFilteredEntries() {
 
 function renderEntries(expenses) {
   if (expenses.length === 0) {
-    let emptyMsg = 'No entries for this month yet. Add one on the left.';
-    if (state.filterType === 'debit') emptyMsg = 'No debit entries for this month.';
-    if (state.filterType === 'credit') emptyMsg = 'No income/credit entries for this month.';
+    let emptyMsg = '';
+    if (state.filterType === 'debit') {
+      emptyMsg = 'No debit entries for this month.';
+    } else if (state.filterType === 'credit') {
+      emptyMsg = 'No income/credit entries for this month.';
+    } else {
+      // First-time empty state CTA
+      if (state.profile.loggedIn) {
+        el.entriesList.innerHTML = `
+          <div class="empty-cta">
+            <div class="empty-cta-icon">📒</div>
+            <p class="empty-cta-heading">No entries yet for this month</p>
+            <p class="empty-cta-sub">Start tracking by adding your first income or expense.</p>
+            <button type="button" class="btn-primary empty-cta-btn" id="empty-cta-btn">+ Add your first entry</button>
+          </div>`;
+        document.getElementById('empty-cta-btn').addEventListener('click', () => {
+          el.date.focus();
+          el.form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        return;
+      } else {
+        emptyMsg = 'No entries for this month yet. Add one on the left.';
+      }
+    }
     el.entriesList.innerHTML = `<p class="empty-note">${emptyMsg}</p>`;
     return;
   }
@@ -1156,6 +1344,13 @@ el.form.addEventListener('submit', async (evt) => {
       throw new Error(err.error || 'Something went wrong saving that entry.');
     }
 
+    const saved = await res.json().catch(() => ({}));
+
+    // Surface local-fallback warning if Supabase was unavailable
+    if (saved.warning) {
+      showGreetingToast(`⚠ ${saved.warning}`, true);
+    }
+
     const savedMonth = payload.date.slice(0, 7);
     resetForm();
     if (savedMonth !== state.month) {
@@ -1172,6 +1367,11 @@ async function deleteExpense(id) {
   try {
     const res = await authFetch(`${API}/${id}`, { method: 'DELETE' });
     if (res.ok || res.status === 204) {
+      // Check for warning in the body (non-204 responses include a body)
+      if (res.status !== 204) {
+        const body = await res.json().catch(() => ({}));
+        if (body.warning) showGreetingToast(`⚠ ${body.warning}`, true);
+      }
       if (state.editingId === id) resetForm();
       await loadMonth();
     }
@@ -1187,9 +1387,7 @@ el.breakdownPills.querySelectorAll('.pill-btn').forEach((btn) => {
     el.breakdownPills.querySelectorAll('.pill-btn').forEach((b) => b.classList.remove('active'));
     e.target.classList.add('active');
     state.breakdownView = e.target.dataset.breakdown;
-    if (state.profile.loggedIn) {
-      renderBreakdown();
-    }
+    if (state.profile.loggedIn) renderBreakdown();
   });
 });
 
@@ -1198,9 +1396,7 @@ el.entriesFilterPills.querySelectorAll('.pill-btn').forEach((btn) => {
     el.entriesFilterPills.querySelectorAll('.pill-btn').forEach((b) => b.classList.remove('active'));
     e.target.classList.add('active');
     state.filterType = e.target.dataset.filter;
-    if (state.profile.loggedIn) {
-      renderFilteredEntries();
-    }
+    if (state.profile.loggedIn) renderFilteredEntries();
   });
 });
 
@@ -1230,7 +1426,7 @@ async function init() {
   setEntryType('debit');
   el.date.value = new Date().toISOString().slice(0, 10);
 
-  // Check existing session
+  // Check existing JWT session
   if (state.token) {
     try {
       const res = await fetch(`${AUTH_API}/me`, {
@@ -1239,16 +1435,12 @@ async function init() {
 
       if (res.ok) {
         const data = await res.json();
-        state.profile = {
-          ...data.user,
-          loggedIn: true
-        };
+        state.profile = { ...data.user, loggedIn: true };
         updateGreeting();
         renderProfileView();
         closeAuthModal();
 
-        const timeGreeting = getTimeGreeting();
-        showGreetingToast(`${timeGreeting}, ${state.profile.fullName}! Welcome back.`);
+        showGreetingToast(`${getTimeGreeting()}, ${state.profile.fullName}! Welcome back.`);
         await loadMonth();
         return;
       }
@@ -1257,13 +1449,12 @@ async function init() {
     }
   }
 
-  // If not logged in or invalid token:
-  // Reset token and state, and show login modal immediately!
+  // Invalid or missing token — show login
   state.token = null;
   localStorage.removeItem('ledger_auth_token');
   state.profile.loggedIn = false;
   updateGreeting();
-  loadMonth(); // Displays 0 statistics & blank ledger
+  loadMonth();
   openAuthModal('login');
 }
 

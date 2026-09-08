@@ -849,8 +849,9 @@ select.currency-prefix:focus {
 
 .stat-value {
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
 }
 
 .stat-credit .stat-value {
@@ -1686,4 +1687,263 @@ select.currency-prefix:focus {
   }
 }
 
+/* =====================================================
+   STAT CARDS — larger label too for balance
+   ===================================================== */
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+/* =====================================================
+   BUDGET PROGRESS BAR
+   ===================================================== */
+
+.budget-progress-section {
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  transition: border-color 0.2s ease;
+}
+
+.budget-progress-section.budget-warn {
+  border-color: #c07b20;
+  background: #fffbf0;
+}
+
+.budget-progress-section.budget-over {
+  border-color: var(--brick);
+  background: var(--brick-light);
+}
+
+.budget-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.budget-progress-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.budget-progress-section.budget-warn .budget-progress-label {
+  color: #8a5a14;
+}
+
+.budget-progress-section.budget-over .budget-progress-label {
+  color: var(--brick);
+}
+
+.budget-progress-pct {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.budget-progress-track {
+  height: 8px;
+  background: var(--paper-alt);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.budget-progress-fill {
+  height: 100%;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease;
+}
+
+.budget-progress-fill.fill-ok   { background: var(--forest); }
+.budget-progress-fill.fill-warn  { background: #c07b20; }
+.budget-progress-fill.fill-over  { background: var(--brick); }
+
+.budget-progress-sub {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.budget-progress-section.budget-warn .budget-progress-sub { color: #8a5a14; }
+.budget-progress-section.budget-over .budget-progress-sub { color: var(--brick); }
+
+/* =====================================================
+   MIXED-CURRENCY WARNING
+   ===================================================== */
+
+.mixed-currency-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fffbf0;
+  border: 1px solid #c07b20;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #6b4610;
+  animation: fadeSlideDown 0.22s ease both;
+}
+
+.mixed-currency-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* =====================================================
+   MONTH-JUMP DROPDOWN
+   ===================================================== */
+
+.month-jump-select {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid var(--rule-strong);
+  padding: 4px 8px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%2355634F' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 22px;
+  transition: border-color 0.15s ease;
+  margin-left: 4px;
+}
+
+.month-jump-select:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.month-jump-select:hover {
+  border-color: var(--gold);
+}
+
+/* =====================================================
+   PASSWORD STRENGTH HINT
+   ===================================================== */
+
+.pw-strength-hint {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 5px;
+  letter-spacing: 0.03em;
+  min-height: 14px;
+  transition: color 0.2s ease;
+}
+
+.pw-strength-hint.pw-weak   { color: var(--brick); }
+.pw-strength-hint.pw-fair   { color: #b87420; }
+.pw-strength-hint.pw-strong { color: var(--forest); }
+
+/* =====================================================
+   FORGOT PASSWORD STEP 2 NOTE
+   ===================================================== */
+
+.forgot-step2-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--forest-light);
+  border: 1px solid var(--forest);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: var(--ink);
+  animation: fadeSlideDown 0.22s ease both;
+}
+
+.forgot-step2-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+
+.forgot-step2-note p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* =====================================================
+   EMPTY STATE CTA
+   ===================================================== */
+
+.empty-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 24px;
+  animation: fadeSlideUp 0.35s ease both;
+}
+
+.empty-cta-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+.empty-cta-heading {
+  font-family: 'Zilla Slab', serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+
+.empty-cta-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 18px;
+}
+
+.empty-cta-btn {
+  padding: 10px 22px;
+  font-size: 14px;
+}
+
+/* =====================================================
+   TOAST — warning variant
+   ===================================================== */
+
+.greeting-toast.toast-warning {
+  background: #5c3d11;
+  border-color: #c07b20;
+}
+
+.greeting-toast.toast-warning .toast-text {
+  color: #fff3d6;
+}
+
+/* =====================================================
+   FORM SUCCESS
+   ===================================================== */
+
+.form-success {
+  color: var(--forest);
+  font-size: 13px;
+  margin: 12px 0 0;
+  min-height: 16px;
+  font-weight: 500;
+}
+
+/* =====================================================
+   PROFILE view: mask email/phone — handled by JS
+   danger text for sign-out button
+   ===================================================== */
+
+.danger-text {
+  color: var(--brick) !important;
+}
 

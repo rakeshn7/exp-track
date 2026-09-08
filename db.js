@@ -1,11 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-const USERS_FILE = path.join(__dirname, 'data', 'users.json');
-const EXPENSES_FILE = path.join(__dirname, 'data', 'expenses.json');
+const USERS_FILE          = path.join(__dirname, 'data', 'users.json');
+const EXPENSES_FILE       = path.join(__dirname, 'data', 'expenses.json');
+const PW_RESETS_FILE      = path.join(__dirname, 'data', 'password_resets.json');
 
 // Initialize Supabase if URL and KEY are set
 let supabase = null;
@@ -67,8 +69,30 @@ function writeExpensesLocal(expenses) {
   fs.writeFileSync(EXPENSES_FILE, JSON.stringify(expenses, null, 2));
 }
 
+function readPwResetsLocal() {
+  ensureDataDir();
+  try {
+    if (!fs.existsSync(PW_RESETS_FILE)) return [];
+    const raw = fs.readFileSync(PW_RESETS_FILE, 'utf-8');
+    return JSON.parse(raw || '[]');
+  } catch (err) {
+    console.error('Error reading password_resets file:', err);
+    return [];
+  }
+}
+
+function writePwResetsLocal(resets) {
+  ensureDataDir();
+  fs.writeFileSync(PW_RESETS_FILE, JSON.stringify(resets, null, 2));
+}
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/** SHA-256 hash a token string, returning a hex digest. */
+function sha256(str) {
+  return crypto.createHash('sha256').update(str).digest('hex');
 }
 
 // ----------------- User Management -----------------
@@ -94,6 +118,7 @@ async function findUserByEmail(email) {
           phone: data.phone || '',
           occupation: data.occupation || '',
           monthlyBudget: data.monthly_budget,
+          tokenVersion: data.token_version ?? 0,
           createdAt: data.created_at
         };
       }
@@ -126,6 +151,7 @@ async function findUserById(id) {
           phone: data.phone || '',
           occupation: data.occupation || '',
           monthlyBudget: data.monthly_budget,
+          tokenVersion: data.token_version ?? 0,
           createdAt: data.created_at
         };
       }
@@ -158,6 +184,7 @@ async function createUser({ email, password, fullName, phone, occupation, monthl
     phone: phone ? phone.trim() : '',
     occupation: occupation ? occupation.trim() : '',
     monthlyBudget: monthlyBudget ? Number(monthlyBudget) : null,
+    tokenVersion: 0,
     createdAt: now
   };
 
@@ -171,6 +198,7 @@ async function createUser({ email, password, fullName, phone, occupation, monthl
         phone: newUser.phone,
         occupation: newUser.occupation,
         monthly_budget: newUser.monthlyBudget,
+        token_version: 0,
         created_at: now,
         updated_at: now
       });
@@ -195,12 +223,46 @@ async function verifyPassword(plainPassword, passwordHash) {
   return bcrypt.compare(plainPassword, passwordHash);
 }
 
-async function resetPassword(email, newPassword) {
-  const normalizedEmail = (email || '').trim().toLowerCase();
-  const user = await findUserByEmail(normalizedEmail);
-  if (!user) {
-    throw new Error('No user account found with that email address.');
+/**
+ * Increment a user's tokenVersion to invalidate all previously issued JWTs.
+ * Called on password change (profile update) and after a successful password reset.
+ */
+async function bumpTokenVersion(userId) {
+  if (!userId) return;
+  const now = new Date().toISOString();
+
+  if (supabase) {
+    try {
+      // Atomic increment using RPC or manual read-increment-write
+      const { data, error: fetchError } = await supabase
+        .from('users')
+        .select('token_version')
+        .eq('id', userId)
+        .maybeSingle();
+      if (!fetchError && data) {
+        const newVersion = (data.token_version ?? 0) + 1;
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ token_version: newVersion, updated_at: now })
+          .eq('id', userId);
+        if (updateError) throw updateError;
+      }
+    } catch (err) {
+      console.warn('Supabase bumpTokenVersion error, updating local only:', err.message);
+    }
   }
+
+  // Always update local JSON
+  const users = readUsersLocal();
+  const idx = users.findIndex((u) => u.id === userId);
+  if (idx !== -1) {
+    users[idx].tokenVersion = (users[idx].tokenVersion ?? 0) + 1;
+    writeUsersLocal(users);
+  }
+}
+
+async function resetPassword(userId, newPassword) {
+  if (!userId) throw new Error('User ID required for password reset.');
 
   const salt = await bcrypt.genSalt(10);
   const passwordHash = await bcrypt.hash(newPassword, salt);
@@ -211,7 +273,7 @@ async function resetPassword(email, newPassword) {
       const { error } = await supabase
         .from('users')
         .update({ password_hash: passwordHash, updated_at: now })
-        .eq('id', user.id);
+        .eq('id', userId);
       if (error) throw error;
     } catch (err) {
       console.warn('Supabase resetPassword failed, updating local:', err.message);
@@ -219,7 +281,7 @@ async function resetPassword(email, newPassword) {
   }
 
   const users = readUsersLocal();
-  const idx = users.findIndex((u) => u.id === user.id);
+  const idx = users.findIndex((u) => u.id === userId);
   if (idx !== -1) {
     users[idx].passwordHash = passwordHash;
     writeUsersLocal(users);
@@ -244,7 +306,7 @@ async function updateUserProfile(id, updates) {
 
   let passwordChanged = false;
   let newPasswordHash = user.passwordHash;
-  if (updates.newPassword && String(updates.newPassword).trim().length >= 4) {
+  if (updates.newPassword && String(updates.newPassword).trim().length >= 8) {
     const salt = await bcrypt.genSalt(10);
     newPasswordHash = await bcrypt.hash(String(updates.newPassword).trim(), salt);
     passwordChanged = true;
@@ -287,9 +349,111 @@ async function updateUserProfile(id, updates) {
     writeUsersLocal(users);
   }
 
+  // Bump tokenVersion separately if password changed — keeps atomic logic clean
+  if (passwordChanged) {
+    await bumpTokenVersion(id);
+  }
+
   return { id, ...merged, passwordChanged };
 }
 
+// ----------------- Password Reset Tokens -----------------
+
+/**
+ * Store a hashed password-reset token.
+ * The raw token is NEVER stored — only the SHA-256 hash.
+ *
+ * @param {string} userId
+ * @param {string} rawToken  - The plain token to hash and store
+ * @param {Date}   expiresAt
+ */
+async function createPasswordReset(userId, rawToken, expiresAt) {
+  const tokenHash = sha256(rawToken);
+  const record = {
+    tokenHash,
+    userId,
+    expiresAt: expiresAt.toISOString(),
+    used: false,
+    createdAt: new Date().toISOString()
+  };
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('password_resets').insert({
+        token_hash: tokenHash,
+        user_id: userId,
+        expires_at: record.expiresAt,
+        used: false,
+        created_at: record.createdAt
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.warn('Supabase createPasswordReset error, saving locally:', err.message);
+    }
+  }
+
+  const resets = readPwResetsLocal();
+  resets.push(record);
+  writePwResetsLocal(resets);
+}
+
+/**
+ * Validate and consume a password-reset token.
+ * Hashes the incoming raw token and looks up the hash.
+ *
+ * @param   {string} rawToken
+ * @returns {{ userId: string }} on success
+ * @throws  {Error}             on invalid/expired/used token
+ */
+async function consumePasswordReset(rawToken) {
+  const tokenHash = sha256(rawToken);
+  const now = new Date();
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('password_resets')
+        .select('*')
+        .eq('token_hash', tokenHash)
+        .maybeSingle();
+      if (error) throw error;
+
+      if (data) {
+        if (data.used) throw new Error('This reset token has already been used.');
+        if (new Date(data.expires_at) < now) throw new Error('This reset token has expired. Please request a new one.');
+
+        // Mark token as used
+        await supabase
+          .from('password_resets')
+          .update({ used: true })
+          .eq('token_hash', tokenHash);
+
+        // Mirror to local
+        const resets = readPwResetsLocal();
+        const idx = resets.findIndex((r) => r.tokenHash === tokenHash);
+        if (idx !== -1) { resets[idx].used = true; writePwResetsLocal(resets); }
+
+        return { userId: data.user_id };
+      }
+      // If not found in Supabase, fall through to local
+    } catch (err) {
+      if (err.message.includes('already been used') || err.message.includes('expired')) throw err;
+      console.warn('Supabase consumePasswordReset error, checking local:', err.message);
+    }
+  }
+
+  // Local fallback
+  const resets = readPwResetsLocal();
+  const idx = resets.findIndex((r) => r.tokenHash === tokenHash);
+  if (idx === -1) throw new Error('Invalid or unrecognised reset token.');
+  const record = resets[idx];
+  if (record.used) throw new Error('This reset token has already been used.');
+  if (new Date(record.expiresAt) < now) throw new Error('This reset token has expired. Please request a new one.');
+
+  resets[idx].used = true;
+  writePwResetsLocal(resets);
+  return { userId: record.userId };
+}
 
 // ----------------- Expense Management (Per-User) -----------------
 
@@ -347,20 +511,34 @@ async function getUserSummary(userId, { month } = {}) {
   const byCategoryCredit = {};
   const byCategory = {};
 
+  // Per-currency subtotals for mixed-currency detection
+  const currencyTotals = {};
+
   expenses.forEach((e) => {
     const itemType = e.type === 'credit' ? 'credit' : 'debit';
     const amt = Number(e.amount);
+    const cur = e.currency || '₹';
+
+    if (!currencyTotals[cur]) currencyTotals[cur] = { totalDebit: 0, totalCredit: 0 };
+
     if (itemType === 'credit') {
       totalCredit += amt;
       byCategoryCredit[e.category] = (byCategoryCredit[e.category] || 0) + amt;
+      currencyTotals[cur].totalCredit += amt;
     } else {
       totalDebit += amt;
       byCategoryDebit[e.category] = (byCategoryDebit[e.category] || 0) + amt;
+      currencyTotals[cur].totalDebit += amt;
     }
     byCategory[e.category] = (byCategory[e.category] || 0) + amt;
   });
 
   const netBalance = totalCredit - totalDebit;
+  const currencyKeys = Object.keys(currencyTotals);
+
+  // mixedCurrencies = true when more than one currency symbol appears this month.
+  // Raw totals are NOT converted — the UI will warn the user instead.
+  const mixedCurrencies = currencyKeys.length > 1;
 
   return {
     total: totalDebit,
@@ -370,7 +548,9 @@ async function getUserSummary(userId, { month } = {}) {
     byCategoryDebit,
     byCategoryCredit,
     byCategory,
-    count: expenses.length
+    count: expenses.length,
+    mixedCurrencies,
+    currencyBreakdown: mixedCurrencies ? currencyTotals : null
   };
 }
 
@@ -395,6 +575,8 @@ async function addExpense(userId, expense) {
     description: expense.description ? String(expense.description).trim() : ''
   };
 
+  let localFallback = false;
+
   if (supabase) {
     try {
       const { error } = await supabase.from('expenses').insert({
@@ -411,6 +593,7 @@ async function addExpense(userId, expense) {
       if (error) throw error;
     } catch (err) {
       console.warn('Supabase addExpense error, saving local:', err.message);
+      localFallback = true;
     }
   }
 
@@ -418,7 +601,7 @@ async function addExpense(userId, expense) {
   all.push(record);
   writeExpensesLocal(all);
 
-  return record;
+  return { ...record, localFallback };
 }
 
 async function updateExpense(userId, id, updates) {
@@ -438,6 +621,8 @@ async function updateExpense(userId, id, updates) {
     description: updates.description !== undefined ? String(updates.description).trim() : (existing ? existing.description : '')
   };
 
+  let localFallback = false;
+
   if (supabase) {
     try {
       const { error } = await supabase
@@ -455,6 +640,7 @@ async function updateExpense(userId, id, updates) {
       if (error) throw error;
     } catch (err) {
       console.warn('Supabase updateExpense error:', err.message);
+      localFallback = true;
     }
   }
 
@@ -463,10 +649,12 @@ async function updateExpense(userId, id, updates) {
     writeExpensesLocal(all);
   }
 
-  return merged;
+  return { ...merged, localFallback };
 }
 
 async function deleteExpense(userId, id) {
+  let localFallback = false;
+
   if (supabase) {
     try {
       const { error } = await supabase
@@ -477,13 +665,14 @@ async function deleteExpense(userId, id) {
       if (error) throw error;
     } catch (err) {
       console.warn('Supabase deleteExpense error:', err.message);
+      localFallback = true;
     }
   }
 
   const all = readExpensesLocal();
   const filtered = all.filter((e) => !(e.id === id && e.userId === userId));
   writeExpensesLocal(filtered);
-  return true;
+  return { success: true, localFallback };
 }
 
 module.exports = {
@@ -493,7 +682,10 @@ module.exports = {
   createUser,
   verifyPassword,
   resetPassword,
+  bumpTokenVersion,
   updateUserProfile,
+  createPasswordReset,
+  consumePasswordReset,
   getUserExpenses,
   getUserSummary,
   getUserMonths,

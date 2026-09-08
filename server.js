@@ -3,55 +3,88 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// --------------- JWT Secret ---------------
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Generate one with: openssl rand -hex 32');
+  process.exit(1);
+}
+
+// --------------- CORS ---------------
+// Restrict to app's own origin. Set ALLOWED_ORIGIN env var on Render.
+// Accepts a comma-separated list for multi-origin support.
+const rawOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
+const allowedOrigins = rawOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no Origin header (same-origin / curl / Render health checks)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin '${origin}' not allowed.`));
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Simple in-memory session token store (token -> { userId, expiresAt })
-const sessions = new Map();
+// --------------- Rate Limiters ---------------
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' }
+});
 
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
+// --------------- JWT Helpers ---------------
+
+function issueJwt(user) {
+  return jwt.sign(
+    { userId: user.id, email: user.email, tokenVersion: user.tokenVersion ?? 0 },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
 }
 
-function createSession(userId) {
-  const token = generateToken();
-  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
-  sessions.set(token, { userId, expiresAt });
-  return token;
-}
-
-// Authentication middleware
+// --------------- Authentication Middleware ---------------
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.startsWith('Bearer ')
     ? authHeader.slice(7).trim()
     : (req.headers['x-auth-token'] || req.query.token);
 
-  if (!token || !sessions.has(token)) {
+  if (!token) {
     return res.status(401).json({ error: 'Authentication required. Please sign in.' });
   }
 
-  const session = sessions.get(token);
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return res.status(401).json({ error: 'Session expired or invalid. Please sign in again.' });
   }
 
-  const user = await db.findUserById(session.userId);
+  const user = await db.findUserById(payload.userId);
   if (!user) {
-    sessions.delete(token);
     return res.status(401).json({ error: 'User no longer exists.' });
+  }
+
+  // tokenVersion check — invalidates JWTs issued before the last password change
+  if ((payload.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+    return res.status(401).json({ error: 'Session invalidated. Please sign in again.' });
   }
 
   req.user = user;
   req.userId = user.id;
-  req.token = token;
   next();
 }
 
@@ -77,15 +110,15 @@ app.get('/api/status', (req, res) => {
 });
 
 // Register new user
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { email, password, fullName, phone, occupation, monthlyBudget } = req.body;
 
     if (!email || !String(email).trim()) {
       return res.status(400).json({ error: 'Valid email is required.' });
     }
-    if (!password || String(password).length < 4) {
-      return res.status(400).json({ error: 'Password must be at least 4 characters long.' });
+    if (!password || String(password).length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
     }
 
     const user = await db.createUser({
@@ -97,7 +130,7 @@ app.post('/api/auth/register', async (req, res) => {
       monthlyBudget
     });
 
-    const token = createSession(user.id);
+    const token = issueJwt(user);
 
     res.status(201).json({
       success: true,
@@ -117,7 +150,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Login existing user
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -135,7 +168,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
-    const token = createSession(user.id);
+    const token = issueJwt(user);
 
     res.json({
       success: true,
@@ -154,23 +187,68 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Forgot password / Reset password
-app.post('/api/auth/forgot-password', async (req, res) => {
+// Step 1 — Request password reset (generates a token, logs it to console)
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const { email } = req.body;
 
     if (!email || !String(email).trim()) {
       return res.status(400).json({ error: 'Email address is required.' });
     }
-    if (!newPassword || String(newPassword).length < 4) {
-      return res.status(400).json({ error: 'New password must be at least 4 characters long.' });
+
+    const user = await db.findUserByEmail(email);
+
+    // Always respond with success to prevent user enumeration
+    if (!user) {
+      return res.json({
+        success: true,
+        message: 'If an account exists for that email, a reset token has been generated.'
+      });
     }
 
-    await db.resetPassword(email, newPassword);
+    // Generate a cryptographically random raw token (never stored — only its hash is)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
+
+    await db.createPasswordReset(user.id, rawToken, expiresAt);
+
+    // TODO: send email with the reset link/token here.
+    // e.g. sendMail({ to: user.email, subject: 'Reset your EXPTRACK password',
+    //   body: `Your reset token: ${rawToken}\nExpires: ${expiresAt.toISOString()}` })
+    console.log(`[PASSWORD RESET] Token for ${user.email}: ${rawToken} (expires ${expiresAt.toISOString()})`);
 
     res.json({
       success: true,
-      message: 'Password updated successfully. You can now sign in with your new password.'
+      message: 'If an account exists for that email, a reset token has been generated. Check the server logs or your email (once configured).'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to initiate password reset.' });
+  }
+});
+
+// Step 2 — Consume token and set new password
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !String(token).trim()) {
+      return res.status(400).json({ error: 'Reset token is required.' });
+    }
+    if (!newPassword || String(newPassword).length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
+    }
+
+    // consumePasswordReset validates hash, expiry, and used flag, then marks it used
+    const { userId } = await db.consumePasswordReset(token);
+
+    await db.resetPassword(userId, newPassword);
+
+    // Bump tokenVersion to invalidate all previously issued JWTs for this user
+    await db.bumpTokenVersion(userId);
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully. Please sign in with your new password.'
     });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Failed to reset password.' });
@@ -195,15 +273,12 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 app.put('/api/auth/profile', authMiddleware, async (req, res) => {
   try {
     const { newPassword } = req.body;
-    if (newPassword && String(newPassword).trim().length < 4) {
-      return res.status(400).json({ error: 'New password must be at least 4 characters long.' });
+    if (newPassword && String(newPassword).trim().length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
     }
 
+    // updateUserProfile internally calls bumpTokenVersion when password changes
     const updated = await db.updateUserProfile(req.userId, req.body);
-
-    if (updated.passwordChanged && req.token && sessions.has(req.token)) {
-      sessions.delete(req.token);
-    }
 
     res.json({
       success: true,
@@ -215,17 +290,8 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
   }
 });
 
-
-// Logout
+// Logout — stateless JWT: client removes the token; server just acknowledges
 app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.startsWith('Bearer ')
-    ? authHeader.slice(7).trim()
-    : (req.headers['x-auth-token'] || req.query.token);
-
-  if (token && sessions.has(token)) {
-    sessions.delete(token);
-  }
   res.json({ success: true });
 });
 
@@ -272,7 +338,12 @@ app.post('/api/expenses', authMiddleware, async (req, res) => {
         .json({ error: 'A valid date, category, and numeric amount are required.' });
     }
     const newExpense = await db.addExpense(req.userId, req.body);
-    res.status(201).json(newExpense);
+    const response = { ...newExpense };
+    if (newExpense.localFallback) {
+      response.warning = 'Saved locally — Supabase is unavailable. Data may not persist across redeploys.';
+    }
+    delete response.localFallback;
+    res.status(201).json(response);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to create expense.' });
   }
@@ -283,7 +354,12 @@ app.put('/api/expenses/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const updated = await db.updateExpense(req.userId, id, req.body);
-    res.json(updated);
+    const response = { ...updated };
+    if (updated.localFallback) {
+      response.warning = 'Updated locally — Supabase is unavailable. Data may not persist across redeploys.';
+    }
+    delete response.localFallback;
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update expense.' });
   }
@@ -293,7 +369,11 @@ app.put('/api/expenses/:id', authMiddleware, async (req, res) => {
 app.delete('/api/expenses/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    await db.deleteExpense(req.userId, id);
+    const result = await db.deleteExpense(req.userId, id);
+    if (result.localFallback) {
+      // Send 200 with warning instead of 204 so the body can be read
+      return res.json({ success: true, warning: 'Deleted locally — Supabase is unavailable. Data may not persist across redeploys.' });
+    }
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to delete expense.' });
