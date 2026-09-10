@@ -6,21 +6,42 @@
 create table if not exists public.users (
   id text primary key,
   email text unique not null,
-  password_hash text not null,
+  password_hash text,
   full_name text not null,
-  phone text default '',
   occupation text default '',
   monthly_budget numeric default null,
+  google_id text unique,
+  auth_provider text default 'password',
   token_version integer not null default 0,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 1a. Add token_version to existing deployments (safe no-op if already present)
+-- 1a. Migrations for existing deployments (safe no-op if already present)
+do $$ begin
+  alter table public.users alter column password_hash drop not null;
+exception when others then null;
+end $$;
+
+do $$ begin
+  alter table public.users add column if not exists google_id text unique;
+exception when others then null;
+end $$;
+
+do $$ begin
+  alter table public.users add column if not exists auth_provider text default 'password';
+exception when others then null;
+end $$;
+
 do $$ begin
   alter table public.users add column if not exists token_version integer not null default 0;
 exception when others then null;
 end $$;
+
+-- Optional cleanup if reverting from phone-auth experiments (run only after verifying no accounts depend on them):
+-- alter table public.users alter column email set not null;
+-- drop index if exists public.idx_users_phone;
+-- alter table public.users drop column if exists phone;
 
 -- 2. Create Expenses Table
 create table if not exists public.expenses (
@@ -35,19 +56,33 @@ create table if not exists public.expenses (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. Create Password Resets Table
---    NOTE: stores the SHA-256 HASH of the token, never the raw token.
+-- 3. Create Password Resets Table (OTP-based)
+--    If an older token-based table exists, migrate/replace cleanly.
+--    NOTE: stores the SHA-256 HASH of the 6-digit OTP, never the raw OTP.
+do $$ begin
+  -- If password_resets exists with older token_hash column, replace with clean OTP-based schema
+  if exists (
+    select 1 from information_schema.columns 
+    where table_schema = 'public' and table_name = 'password_resets' and column_name = 'token_hash'
+  ) then
+    drop table public.password_resets cascade;
+  end if;
+end $$;
+
 create table if not exists public.password_resets (
-  token_hash text primary key,
+  id uuid primary key default gen_random_uuid(),
   user_id text not null references public.users(id) on delete cascade,
+  otp_hash text not null,
   expires_at timestamp with time zone not null,
-  used boolean not null default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  attempts integer default 0,
+  used boolean default false,
+  created_at timestamp with time zone default now()
 );
 
 -- 4. Create Indexes for fast querying
 create index if not exists idx_expenses_user_date on public.expenses(user_id, date desc);
 create index if not exists idx_users_email on public.users(email);
+create index if not exists idx_users_google_id on public.users(google_id);
 create index if not exists idx_pw_resets_user on public.password_resets(user_id);
 
 -- 5. Enable Row Level Security (RLS)

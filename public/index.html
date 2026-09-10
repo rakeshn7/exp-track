@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Zilla+Slab:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -94,9 +96,11 @@
     <main class="month-view">
 
       <div class="month-bar">
-        <button type="button" id="prev-month" class="month-nav" aria-label="Previous month">&larr;</button>
-        <h2 id="month-label">—</h2>
-        <button type="button" id="next-month" class="month-nav" aria-label="Next month">&rarr;</button>
+        <div class="month-nav-row">
+          <button type="button" id="prev-month" class="month-nav" aria-label="Previous month">&larr;</button>
+          <h2 id="month-label">—</h2>
+          <button type="button" id="next-month" class="month-nav" aria-label="Next month">&rarr;</button>
+        </div>
         <!-- Month jump dropdown (populated by JS from /api/expenses/months) -->
         <select id="month-jump-select" class="month-jump-select" title="Jump to month" aria-label="Jump to a specific month">
           <option value="">Jump to month…</option>
@@ -202,10 +206,6 @@
         <span class="profile-value" id="view-fullname">—</span>
       </div>
       <div class="profile-row">
-        <span class="profile-label">Phone Number</span>
-        <span class="profile-value" id="view-phone">—</span>
-      </div>
-      <div class="profile-row">
         <span class="profile-label">Email Address</span>
         <span class="profile-value" id="view-email">—</span>
       </div>
@@ -230,10 +230,6 @@
         <div class="field-group full-width">
           <label for="edit-fullname">Full Name <span class="required">*</span></label>
           <input type="text" id="edit-fullname" required placeholder="e.g. Rahul Sharma" />
-        </div>
-        <div class="field-group">
-          <label for="edit-phone">Phone Number</label>
-          <input type="tel" id="edit-phone" placeholder="e.g. +91 98765 43210" />
         </div>
         <div class="field-group">
           <label for="edit-email">Email Address <span class="required">*</span></label>
@@ -285,10 +281,18 @@
         </div>
       </div>
 
+      <!-- Google Sign-In Button -->
+      <div id="google-login-section" class="google-auth-section">
+        <div id="google-login-container" class="google-btn-wrapper"></div>
+        <div class="auth-divider">
+          <span>or sign in with email</span>
+        </div>
+      </div>
+
       <form id="auth-login-form" class="auth-form" novalidate>
         <div class="field-group full-width">
           <label for="auth-login-email">Email Address <span class="required">*</span></label>
-          <input type="email" id="auth-login-email" required placeholder="you@example.com" autocomplete="email" />
+          <input type="email" id="auth-login-email" required placeholder="you@example.com" autocomplete="username" />
         </div>
 
         <div class="field-group full-width">
@@ -322,6 +326,14 @@
         </div>
       </div>
 
+      <!-- Google Sign-Up Button -->
+      <div id="google-register-section" class="google-auth-section">
+        <div id="google-register-container" class="google-btn-wrapper"></div>
+        <div class="auth-divider">
+          <span>or register with email</span>
+        </div>
+      </div>
+
       <form id="auth-register-form" class="auth-form" novalidate>
         <div class="edit-fields-grid">
           <div class="field-group full-width">
@@ -344,12 +356,7 @@
             <div class="pw-strength-hint" id="register-pw-strength" aria-live="polite"></div>
           </div>
 
-          <div class="field-group">
-            <label for="register-phone">Phone Number (optional)</label>
-            <input type="tel" id="register-phone" placeholder="e.g. +91 98765 43210" autocomplete="tel" />
-          </div>
-
-          <div class="field-group">
+          <div class="field-group full-width">
             <label for="register-budget">Monthly Budget Goal (optional)</label>
             <input type="number" id="register-budget" min="0" step="100" placeholder="0.00" />
           </div>
@@ -368,20 +375,20 @@
       </form>
     </div>
 
-    <!-- 3. FORGOT PASSWORD VIEW (two-step) -->
+    <!-- 3. FORGOT PASSWORD VIEW (Two-Step OTP Flow) -->
     <div id="auth-forgot-view" class="auth-view" hidden>
       <div class="modal-header auth-header">
         <div>
           <h2 class="modal-title">Reset Password</h2>
-          <p class="modal-sub">Request a reset token, then use it to set a new password.</p>
+          <p class="modal-sub">Receive a 6-digit verification code to reset your password.</p>
         </div>
       </div>
 
-      <!-- Step 1: Request reset token -->
+      <!-- Step 1: Request 6-digit OTP -->
       <div id="forgot-step1">
         <form id="auth-forgot-form" class="auth-form" novalidate>
           <div class="field-group full-width">
-            <label for="forgot-email">Registered Email <span class="required">*</span></label>
+            <label for="forgot-email">Registered Email Address <span class="required">*</span></label>
             <input type="email" id="forgot-email" required placeholder="you@example.com" autocomplete="email" />
           </div>
 
@@ -389,7 +396,7 @@
           <p class="form-success" id="auth-forgot-success" role="alert"></p>
 
           <div class="profile-actions auth-actions">
-            <button type="submit" id="forgot-submit-btn" class="btn-primary full-btn">Send Reset Token →</button>
+            <button type="submit" id="forgot-submit-btn" class="btn-primary full-btn">Send Code →</button>
           </div>
 
           <div class="auth-footer-nav">
@@ -398,16 +405,18 @@
         </form>
       </div>
 
-      <!-- Step 2: Enter token + new password (shown after step 1 succeeds) -->
+      <!-- Step 2: Enter 6-digit OTP + new password + confirm password -->
       <div id="forgot-step2" hidden>
         <div class="forgot-step2-note">
-          <span class="forgot-step2-icon">📋</span>
-          <p>Check your email (or the server console if email is not configured yet) for your reset token. It expires in <strong>20 minutes</strong>.</p>
+          <span class="forgot-step2-icon">📩</span>
+          <p id="forgot-step2-note-text">We've sent a 6-digit code to <strong id="otp-sent-email-display">your email</strong>. It expires in <strong>10 minutes</strong>.</p>
         </div>
         <form id="auth-reset-form" class="auth-form" novalidate>
           <div class="field-group full-width">
-            <label for="reset-token">Reset Token <span class="required">*</span></label>
-            <input type="text" id="reset-token" required placeholder="Paste token here" autocomplete="off" />
+            <label for="reset-token">6-Digit Verification Code <span class="required">*</span></label>
+            <div class="otp-input-wrapper">
+              <input type="text" id="reset-token" class="otp-input-field" required placeholder="• • • • • •" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" />
+            </div>
           </div>
 
           <div class="field-group full-width">
@@ -419,15 +428,29 @@
             <div class="pw-strength-hint" id="reset-pw-strength" aria-live="polite"></div>
           </div>
 
+          <div class="field-group full-width">
+            <label for="reset-confirm-password">Confirm Password <span class="required">*</span></label>
+            <div class="password-input-wrapper">
+              <input type="password" id="reset-confirm-password" required placeholder="Re-enter new password" autocomplete="new-password" />
+              <button type="button" class="btn-toggle-pw" id="toggle-confirm-reset-pw" title="Show or hide password" aria-label="Toggle password visibility">👁</button>
+            </div>
+          </div>
+
           <p class="form-error" id="auth-reset-error" role="alert"></p>
           <p class="form-success" id="auth-reset-success" role="alert"></p>
 
           <div class="profile-actions auth-actions">
-            <button type="submit" id="reset-submit-btn" class="btn-primary full-btn">Set New Password →</button>
+            <button type="submit" id="reset-submit-btn" class="btn-primary full-btn">Reset Password →</button>
+          </div>
+
+          <div class="otp-resend-row">
+            <span>Didn't receive the code?</span>
+            <button type="button" class="auth-link-btn" id="resend-otp-btn">Resend code</button>
+            <span id="resend-otp-timer" class="otp-timer-text" hidden>Resend in <strong id="resend-countdown">60</strong>s</span>
           </div>
 
           <div class="auth-footer-nav">
-            <button type="button" class="auth-link-btn" id="back-to-step1-btn">← Request a new token</button>
+            <button type="button" class="auth-link-btn" id="back-to-step1-btn">← Change email</button>
           </div>
         </form>
       </div>

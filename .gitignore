@@ -18,6 +18,9 @@ package-lock.json
 data/users.json
 data/expenses.json
 data/profile.json
+data/password_resets.json
+data/*.json
+data/
 
 # --- OS Files ---
 .DS_Store

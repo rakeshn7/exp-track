@@ -74,7 +74,17 @@ function readPwResetsLocal() {
   try {
     if (!fs.existsSync(PW_RESETS_FILE)) return [];
     const raw = fs.readFileSync(PW_RESETS_FILE, 'utf-8');
-    return JSON.parse(raw || '[]');
+    const items = JSON.parse(raw || '[]');
+    // Cleanly normalize any older records to OTP-based schema
+    return items.map((r) => ({
+      id: r.id || ('res_' + generateId()),
+      userId: r.userId || r.user_id,
+      otpHash: r.otpHash || r.tokenHash || r.otp_hash || r.token_hash,
+      expiresAt: r.expiresAt || r.expires_at,
+      attempts: r.attempts !== undefined ? r.attempts : 0,
+      used: Boolean(r.used),
+      createdAt: r.createdAt || r.created_at || new Date().toISOString()
+    }));
   } catch (err) {
     console.error('Error reading password_resets file:', err);
     return [];
@@ -90,9 +100,9 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-/** SHA-256 hash a token string, returning a hex digest. */
+/** SHA-256 hash a string, returning a hex digest. */
 function sha256(str) {
-  return crypto.createHash('sha256').update(str).digest('hex');
+  return crypto.createHash('sha256').update(String(str)).digest('hex');
 }
 
 // ----------------- User Management -----------------
@@ -106,18 +116,19 @@ async function findUserByEmail(email) {
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('email', normalizedEmail)
+        .ilike('email', normalizedEmail)
         .maybeSingle();
       if (error) throw error;
       if (data) {
         return {
           id: data.id,
           email: data.email,
-          passwordHash: data.password_hash,
+          passwordHash: data.password_hash || null,
           fullName: data.full_name,
-          phone: data.phone || '',
           occupation: data.occupation || '',
           monthlyBudget: data.monthly_budget,
+          googleId: data.google_id || null,
+          authProvider: data.auth_provider || (data.google_id ? 'google' : 'password'),
           tokenVersion: data.token_version ?? 0,
           createdAt: data.created_at
         };
@@ -128,7 +139,16 @@ async function findUserByEmail(email) {
   }
 
   const users = readUsersLocal();
-  return users.find((u) => u.email.toLowerCase() === normalizedEmail) || null;
+  const u = users.find((item) => (item.email || '').toLowerCase() === normalizedEmail);
+  if (!u) return null;
+
+  return {
+    ...u,
+    passwordHash: u.passwordHash || null,
+    googleId: u.googleId || null,
+    authProvider: u.authProvider || (u.googleId ? 'google' : 'password'),
+    tokenVersion: u.tokenVersion ?? 0
+  };
 }
 
 async function findUserById(id) {
@@ -146,11 +166,12 @@ async function findUserById(id) {
         return {
           id: data.id,
           email: data.email,
-          passwordHash: data.password_hash,
+          passwordHash: data.password_hash || null,
           fullName: data.full_name,
-          phone: data.phone || '',
           occupation: data.occupation || '',
           monthlyBudget: data.monthly_budget,
+          googleId: data.google_id || null,
+          authProvider: data.auth_provider || (data.google_id ? 'google' : 'password'),
           tokenVersion: data.token_version ?? 0,
           createdAt: data.created_at
         };
@@ -161,14 +182,85 @@ async function findUserById(id) {
   }
 
   const users = readUsersLocal();
-  return users.find((u) => u.id === id) || null;
+  const u = users.find((item) => item.id === id);
+  if (!u) return null;
+
+  return {
+    ...u,
+    passwordHash: u.passwordHash || null,
+    googleId: u.googleId || null,
+    authProvider: u.authProvider || (u.googleId ? 'google' : 'password'),
+    tokenVersion: u.tokenVersion ?? 0
+  };
 }
 
-async function createUser({ email, password, fullName, phone, occupation, monthlyBudget }) {
-  const normalizedEmail = email.trim().toLowerCase();
+async function syncUserToSupabase(user) {
+  if (!supabase || !user || !user.id) return false;
+  try {
+    const { data } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (data) return true;
+
+    // Try full insert with google_id and auth_provider
+    const fullPayload = {
+      id: user.id,
+      email: user.email,
+      password_hash: user.passwordHash || 'GOOGLE_OAUTH',
+      full_name: user.fullName || 'User',
+      occupation: user.occupation || '',
+      monthly_budget: user.monthlyBudget || null,
+      google_id: user.googleId || null,
+      auth_provider: user.authProvider || 'password',
+      token_version: user.tokenVersion ?? 0,
+      created_at: user.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    let { error: insertError } = await supabase.from('users').insert(fullPayload);
+    if (insertError) {
+      // Fallback: if columns auth_provider or google_id are missing in Supabase schema, insert standard cols
+      const fallbackPayload = {
+        id: user.id,
+        email: user.email,
+        password_hash: user.passwordHash || 'GOOGLE_OAUTH',
+        full_name: user.fullName || 'User',
+        occupation: user.occupation || '',
+        monthly_budget: user.monthlyBudget || null,
+        token_version: user.tokenVersion ?? 0,
+        created_at: user.createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      const { error: fallbackError } = await supabase.from('users').insert(fallbackPayload);
+      if (fallbackError && !fallbackError.message.includes('duplicate key')) {
+        console.warn('Supabase syncUserToSupabase fallback error:', fallbackError.message);
+        return false;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('syncUserToSupabase exception:', err.message);
+    return false;
+  }
+}
+
+async function createUser({ email, password, fullName, occupation, monthlyBudget }) {
+  const normalizedEmail = (email || '').trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error('Email address is required.');
+  }
+
   const existing = await findUserByEmail(normalizedEmail);
   if (existing) {
     throw new Error('An account with this email already exists.');
+  }
+
+  if (!password || password.length < 8) {
+    throw new Error('Password must be at least 8 characters long.');
   }
 
   const salt = await bcrypt.genSalt(10);
@@ -181,41 +273,99 @@ async function createUser({ email, password, fullName, phone, occupation, monthl
     email: normalizedEmail,
     passwordHash,
     fullName: fullName ? fullName.trim() : 'User',
-    phone: phone ? phone.trim() : '',
     occupation: occupation ? occupation.trim() : '',
     monthlyBudget: monthlyBudget ? Number(monthlyBudget) : null,
+    googleId: null,
+    authProvider: 'password',
     tokenVersion: 0,
     createdAt: now
   };
-
-  if (supabase) {
-    try {
-      const { error } = await supabase.from('users').insert({
-        id: newUser.id,
-        email: newUser.email,
-        password_hash: newUser.passwordHash,
-        full_name: newUser.fullName,
-        phone: newUser.phone,
-        occupation: newUser.occupation,
-        monthly_budget: newUser.monthlyBudget,
-        token_version: 0,
-        created_at: now,
-        updated_at: now
-      });
-      if (error) throw error;
-    } catch (err) {
-      console.warn('Supabase createUser insert failed, persisting to local:', err.message);
-    }
-  }
 
   // Always write to local storage as mirror / fallback
   const users = readUsersLocal();
   users.push(newUser);
   writeUsersLocal(users);
 
+  if (supabase) {
+    await syncUserToSupabase(newUser);
+  }
+
   // Return user object without sensitive hash
   const { passwordHash: _, ...safeUser } = newUser;
   return safeUser;
+}
+
+/**
+ * Find or create a user via verified Google credentials.
+ * - If no user exists: creates user with googleId, email, name, no password hash, authProvider = 'google'.
+ * - If user exists but has no googleId: links Google account by setting googleId.
+ * - If user exists with a different googleId: rejects.
+ */
+async function findOrCreateGoogleUser({ email, name, googleId }) {
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('Valid Google email is required.');
+  if (!googleId) throw new Error('Google user ID (sub) is required.');
+
+  const existing = await findUserByEmail(normalizedEmail);
+
+  if (existing) {
+    if (existing.googleId && existing.googleId !== googleId) {
+      throw new Error('This email is already associated with a different Google account.');
+    }
+
+    // If existing user does not have googleId yet, link it
+    if (!existing.googleId) {
+      const now = new Date().toISOString();
+      if (supabase) {
+        try {
+          const { error } = await supabase
+            .from('users')
+            .update({ google_id: googleId, updated_at: now })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } catch (err) {
+          console.warn('Supabase link google_id error:', err.message);
+        }
+      }
+
+      const users = readUsersLocal();
+      const idx = users.findIndex((u) => u.id === existing.id);
+      if (idx !== -1) {
+        users[idx].googleId = googleId;
+        writeUsersLocal(users);
+      }
+      existing.googleId = googleId;
+    }
+
+    return existing;
+  }
+
+  // Create new user for Google Sign-In
+  const id = 'usr_' + generateId();
+  const now = new Date().toISOString();
+
+  const newUser = {
+    id,
+    email: normalizedEmail,
+    passwordHash: null,
+    fullName: name && name.trim() ? name.trim() : 'Google User',
+    occupation: '',
+    monthlyBudget: null,
+    googleId,
+    authProvider: 'google',
+    tokenVersion: 0,
+    createdAt: now
+  };
+
+  const users = readUsersLocal();
+  users.push(newUser);
+  writeUsersLocal(users);
+
+  if (supabase) {
+    await syncUserToSupabase(newUser);
+  }
+
+  return newUser;
 }
 
 async function verifyPassword(plainPassword, passwordHash) {
@@ -233,7 +383,6 @@ async function bumpTokenVersion(userId) {
 
   if (supabase) {
     try {
-      // Atomic increment using RPC or manual read-increment-write
       const { data, error: fetchError } = await supabase
         .from('users')
         .select('token_version')
@@ -296,7 +445,6 @@ async function updateUserProfile(id, updates) {
 
   const merged = {
     fullName: updates.fullName !== undefined ? updates.fullName.trim() : user.fullName,
-    phone: updates.phone !== undefined ? updates.phone.trim() : user.phone,
     email: updates.email !== undefined ? updates.email.trim().toLowerCase() : user.email,
     occupation: updates.occupation !== undefined ? updates.occupation.trim() : user.occupation,
     monthlyBudget: updates.monthlyBudget !== undefined && updates.monthlyBudget !== '' && updates.monthlyBudget !== null
@@ -318,7 +466,6 @@ async function updateUserProfile(id, updates) {
     try {
       const supabaseUpdates = {
         full_name: merged.fullName,
-        phone: merged.phone,
         email: merged.email,
         occupation: merged.occupation,
         monthly_budget: merged.monthlyBudget,
@@ -349,7 +496,6 @@ async function updateUserProfile(id, updates) {
     writeUsersLocal(users);
   }
 
-  // Bump tokenVersion separately if password changed — keeps atomic logic clean
   if (passwordChanged) {
     await bumpTokenVersion(id);
   }
@@ -357,32 +503,57 @@ async function updateUserProfile(id, updates) {
   return { id, ...merged, passwordChanged };
 }
 
-// ----------------- Password Reset Tokens -----------------
+// ----------------- Password Reset & OTP Management -----------------
 
 /**
- * Store a hashed password-reset token.
- * The raw token is NEVER stored — only the SHA-256 hash.
+ * Store a SHA-256 hashed 6-digit OTP in password_resets table.
+ * Raw OTP is NEVER stored plain.
+ * Any previous active reset records for this user are invalidated first.
  *
  * @param {string} userId
- * @param {string} rawToken  - The plain token to hash and store
+ * @param {string} otpHash   - SHA-256 hex digest of the 6-digit OTP
  * @param {Date}   expiresAt
  */
-async function createPasswordReset(userId, rawToken, expiresAt) {
-  const tokenHash = sha256(rawToken);
+async function createPasswordReset(userId, otpHash, expiresAt) {
+  const nowStr = new Date().toISOString();
+  const recordId = 'res_' + generateId();
   const record = {
-    tokenHash,
+    id: recordId,
     userId,
+    otpHash,
     expiresAt: expiresAt.toISOString(),
+    attempts: 0,
     used: false,
-    createdAt: new Date().toISOString()
+    createdAt: nowStr
   };
+
+  // Invalidate any older unused OTPs for this user
+  if (supabase) {
+    try {
+      await supabase
+        .from('password_resets')
+        .update({ used: true })
+        .eq('user_id', userId)
+        .eq('used', false);
+    } catch (e) {
+      console.warn('Supabase invalidate older resets error:', e.message);
+    }
+  }
+
+  const resets = readPwResetsLocal();
+  resets.forEach((r) => {
+    if (r.userId === userId && !r.used) {
+      r.used = true;
+    }
+  });
 
   if (supabase) {
     try {
       const { error } = await supabase.from('password_resets').insert({
-        token_hash: tokenHash,
         user_id: userId,
+        otp_hash: otpHash,
         expires_at: record.expiresAt,
+        attempts: 0,
         used: false,
         created_at: record.createdAt
       });
@@ -392,67 +563,113 @@ async function createPasswordReset(userId, rawToken, expiresAt) {
     }
   }
 
-  const resets = readPwResetsLocal();
   resets.push(record);
   writePwResetsLocal(resets);
+  return record;
 }
 
 /**
- * Validate and consume a password-reset token.
- * Hashes the incoming raw token and looks up the hash.
- *
- * @param   {string} rawToken
- * @returns {{ userId: string }} on success
- * @throws  {Error}             on invalid/expired/used token
+ * Get latest active (unused) password reset record for a user.
  */
-async function consumePasswordReset(rawToken) {
-  const tokenHash = sha256(rawToken);
-  const now = new Date();
+async function getLatestPasswordReset(userId) {
+  if (!userId) return null;
 
   if (supabase) {
     try {
       const { data, error } = await supabase
         .from('password_resets')
         .select('*')
-        .eq('token_hash', tokenHash)
+        .eq('user_id', userId)
+        .eq('used', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (error) throw error;
 
-      if (data) {
-        if (data.used) throw new Error('This reset token has already been used.');
-        if (new Date(data.expires_at) < now) throw new Error('This reset token has expired. Please request a new one.');
-
-        // Mark token as used
-        await supabase
-          .from('password_resets')
-          .update({ used: true })
-          .eq('token_hash', tokenHash);
-
-        // Mirror to local
-        const resets = readPwResetsLocal();
-        const idx = resets.findIndex((r) => r.tokenHash === tokenHash);
-        if (idx !== -1) { resets[idx].used = true; writePwResetsLocal(resets); }
-
-        return { userId: data.user_id };
+      if (!error && data) {
+        return {
+          id: data.id,
+          userId: data.user_id,
+          otpHash: data.otp_hash,
+          expiresAt: data.expires_at,
+          attempts: data.attempts ?? 0,
+          used: Boolean(data.used),
+          createdAt: data.created_at
+        };
       }
-      // If not found in Supabase, fall through to local
     } catch (err) {
-      if (err.message.includes('already been used') || err.message.includes('expired')) throw err;
-      console.warn('Supabase consumePasswordReset error, checking local:', err.message);
+      console.warn('Supabase getLatestPasswordReset error, falling back to local:', err.message);
     }
   }
 
-  // Local fallback
   const resets = readPwResetsLocal();
-  const idx = resets.findIndex((r) => r.tokenHash === tokenHash);
-  if (idx === -1) throw new Error('Invalid or unrecognised reset token.');
-  const record = resets[idx];
-  if (record.used) throw new Error('This reset token has already been used.');
-  if (new Date(record.expiresAt) < now) throw new Error('This reset token has expired. Please request a new one.');
+  const match = resets
+    .filter((r) => r.userId === userId && !r.used)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
 
-  resets[idx].used = true;
-  writePwResetsLocal(resets);
-  return { userId: record.userId };
+  return match || null;
+}
+
+/**
+ * Increment the failed attempt counter for a password reset record.
+ * Once attempts >= 5, marks the record as used/invalidated.
+ */
+async function recordFailedResetAttempt(resetRecord) {
+  if (!resetRecord) return { attempts: 0, lockedOut: false };
+  const newAttempts = (resetRecord.attempts || 0) + 1;
+  const shouldLockout = newAttempts >= 5;
+  resetRecord.attempts = newAttempts;
+  if (shouldLockout) {
+    resetRecord.used = true;
+  }
+
+  if (supabase && resetRecord.id) {
+    try {
+      await supabase
+        .from('password_resets')
+        .update({
+          attempts: newAttempts,
+          used: shouldLockout ? true : resetRecord.used
+        })
+        .eq('id', resetRecord.id);
+    } catch (err) {
+      console.warn('Supabase recordFailedResetAttempt error:', err.message);
+    }
+  }
+
+  const resets = readPwResetsLocal();
+  const idx = resets.findIndex((r) => r.id === resetRecord.id || (r.userId === resetRecord.userId && r.otpHash === resetRecord.otpHash));
+  if (idx !== -1) {
+    resets[idx].attempts = newAttempts;
+    if (shouldLockout) resets[idx].used = true;
+    writePwResetsLocal(resets);
+  }
+
+  return { attempts: newAttempts, lockedOut: shouldLockout };
+}
+
+/**
+ * Mark a password reset record as consumed/used.
+ */
+async function markPasswordResetUsed(resetRecord) {
+  if (!resetRecord) return;
+
+  if (supabase && resetRecord.id) {
+    try {
+      await supabase
+        .from('password_resets')
+        .update({ used: true })
+        .eq('id', resetRecord.id);
+    } catch (err) {
+      console.warn('Supabase markPasswordResetUsed error:', err.message);
+    }
+  }
+
+  const resets = readPwResetsLocal();
+  const idx = resets.findIndex((r) => r.id === resetRecord.id || (r.userId === resetRecord.userId && r.otpHash === resetRecord.otpHash));
+  if (idx !== -1) {
+    resets[idx].used = true;
+    writePwResetsLocal(resets);
+  }
 }
 
 // ----------------- Expense Management (Per-User) -----------------
@@ -460,6 +677,7 @@ async function consumePasswordReset(rawToken) {
 async function getUserExpenses(userId, { month, type } = {}) {
   if (!userId) return [];
 
+  let expenses = [];
   if (supabase) {
     try {
       let query = supabase.from('expenses').select('*').eq('user_id', userId);
@@ -471,9 +689,8 @@ async function getUserExpenses(userId, { month, type } = {}) {
       }
       query = query.order('date', { ascending: false });
       const { data, error } = await query;
-      if (error) throw error;
-      if (data) {
-        return data.map((e) => ({
+      if (!error && data) {
+        expenses = data.map((e) => ({
           id: e.id,
           userId: e.user_id,
           date: e.date,
@@ -498,8 +715,20 @@ async function getUserExpenses(userId, { month, type } = {}) {
   if (type) {
     userExpenses = userExpenses.filter((e) => (e.type || 'debit') === type);
   }
-  userExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
-  return userExpenses;
+
+  if (expenses.length > 0) {
+    const remoteIds = new Set(expenses.map((e) => e.id));
+    for (const le of userExpenses) {
+      if (!remoteIds.has(le.id)) {
+        expenses.push(le);
+      }
+    }
+  } else {
+    expenses = userExpenses;
+  }
+
+  expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return expenses;
 }
 
 async function getUserSummary(userId, { month } = {}) {
@@ -511,7 +740,6 @@ async function getUserSummary(userId, { month } = {}) {
   const byCategoryCredit = {};
   const byCategory = {};
 
-  // Per-currency subtotals for mixed-currency detection
   const currencyTotals = {};
 
   expenses.forEach((e) => {
@@ -535,9 +763,6 @@ async function getUserSummary(userId, { month } = {}) {
 
   const netBalance = totalCredit - totalDebit;
   const currencyKeys = Object.keys(currencyTotals);
-
-  // mixedCurrencies = true when more than one currency symbol appears this month.
-  // Raw totals are NOT converted — the UI will warn the user instead.
   const mixedCurrencies = currencyKeys.length > 1;
 
   return {
@@ -579,6 +804,11 @@ async function addExpense(userId, expense) {
 
   if (supabase) {
     try {
+      const user = await findUserById(userId);
+      if (user) {
+        await syncUserToSupabase(user);
+      }
+
       const { error } = await supabase.from('expenses').insert({
         id: record.id,
         user_id: record.userId,
@@ -625,6 +855,11 @@ async function updateExpense(userId, id, updates) {
 
   if (supabase) {
     try {
+      const user = await findUserById(userId);
+      if (user) {
+        await syncUserToSupabase(user);
+      }
+
       const { error } = await supabase
         .from('expenses')
         .update({
@@ -680,12 +915,15 @@ module.exports = {
   findUserByEmail,
   findUserById,
   createUser,
+  findOrCreateGoogleUser,
   verifyPassword,
   resetPassword,
   bumpTokenVersion,
   updateUserProfile,
   createPasswordReset,
-  consumePasswordReset,
+  getLatestPasswordReset,
+  recordFailedResetAttempt,
+  markPasswordResetUsed,
   getUserExpenses,
   getUserSummary,
   getUserMonths,

@@ -47,7 +47,6 @@ const state = {
   profile: {
     id: null,
     fullName: '',
-    phone: '',
     email: '',
     occupation: '',
     monthlyBudget: null,
@@ -115,7 +114,6 @@ const el = {
   profileEditForm: document.getElementById('profile-edit-form'),
 
   viewFullName: document.getElementById('view-fullname'),
-  viewPhone: document.getElementById('view-phone'),
   viewEmail: document.getElementById('view-email'),
   viewOccupation: document.getElementById('view-occupation'),
   viewBudget: document.getElementById('view-budget'),
@@ -126,7 +124,6 @@ const el = {
   profileFormError: document.getElementById('profile-form-error'),
 
   editFullName: document.getElementById('edit-fullname'),
-  editPhone: document.getElementById('edit-phone'),
   editEmail: document.getElementById('edit-email'),
   editOccupation: document.getElementById('edit-occupation'),
   editBudget: document.getElementById('edit-budget'),
@@ -159,7 +156,6 @@ const el = {
   registerFullname: document.getElementById('register-fullname'),
   registerEmail: document.getElementById('register-email'),
   registerPassword: document.getElementById('register-password'),
-  registerPhone: document.getElementById('register-phone'),
   registerBudget: document.getElementById('register-budget'),
   toggleRegPw: document.getElementById('toggle-reg-pw'),
   registerPwStrength: document.getElementById('register-pw-strength'),
@@ -175,16 +171,28 @@ const el = {
   forgotStep1: document.getElementById('forgot-step1'),
   forgotStep2: document.getElementById('forgot-step2'),
   backToStep1Btn: document.getElementById('back-to-step1-btn'),
+  otpSentEmailDisplay: document.getElementById('otp-sent-email-display'),
+  resendOtpBtn: document.getElementById('resend-otp-btn'),
+  resendOtpTimer: document.getElementById('resend-otp-timer'),
+  resendCountdown: document.getElementById('resend-countdown'),
 
   // Reset Password (Step 2)
   authResetForm: document.getElementById('auth-reset-form'),
   resetToken: document.getElementById('reset-token'),
   resetNewPassword: document.getElementById('reset-new-password'),
+  resetConfirmPassword: document.getElementById('reset-confirm-password'),
   toggleResetPw: document.getElementById('toggle-reset-pw'),
+  toggleConfirmResetPw: document.getElementById('toggle-confirm-reset-pw'),
   resetPwStrength: document.getElementById('reset-pw-strength'),
   authResetError: document.getElementById('auth-reset-error'),
   authResetSuccess: document.getElementById('auth-reset-success'),
   resetSubmitBtn: document.getElementById('reset-submit-btn'),
+
+  // Google Auth
+  googleLoginSection: document.getElementById('google-login-section'),
+  googleRegisterSection: document.getElementById('google-register-section'),
+  googleLoginContainer: document.getElementById('google-login-container'),
+  googleRegisterContainer: document.getElementById('google-register-container'),
 
   // Toast
   greetingToast: document.getElementById('greeting-toast'),
@@ -285,7 +293,12 @@ async function authFetch(url, options = {}) {
     headers['Authorization'] = `Bearer ${state.token}`;
   }
 
-  const response = await fetch(url, { ...options, headers });
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (networkErr) {
+    throw new Error('Cannot reach the server. Please make sure the server is running and try again.');
+  }
 
   if (response.status === 401) {
     handleSessionExpired();
@@ -293,6 +306,23 @@ async function authFetch(url, options = {}) {
   }
 
   return response;
+}
+
+/** Safely parse JSON from a response; throws a friendly error if not JSON. */
+async function safeJson(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Server returned HTML (likely offline, wrong URL, or a 404 page)
+    if (response.status === 404) {
+      throw new Error('API endpoint not found (404). Please check your server configuration.');
+    }
+    if (response.status >= 500) {
+      throw new Error('Internal server error. Please check the server logs.');
+    }
+    throw new Error('Server is offline or not reachable. Please start the server and try again.');
+  }
 }
 
 function handleSessionExpired() {
@@ -354,14 +384,6 @@ function getInitials(name) {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function maskPhone(phone) {
-  if (!phone) return '—';
-  const clean = String(phone).trim();
-  if (clean.length <= 4) return '••••';
-  const lastFour = clean.slice(-4);
-  return `•••• ••${lastFour}`;
 }
 
 function maskEmail(email) {
@@ -466,25 +488,72 @@ function showAuthView(viewName) {
     el.registerFullname.focus();
   } else if (viewName === 'forgot') {
     el.authForgotView.hidden = false;
-    // Always start at step 1 when navigating to forgot view
     showForgotStep(1);
-    el.forgotEmail.focus();
   } else {
     el.authLoginView.hidden = false;
-    el.authLoginEmail.focus();
+    if (el.authLoginEmail) el.authLoginEmail.focus();
   }
+
+  // Ensure Google buttons render for current view
+  if (googleClientId) {
+    initGoogleSignIn();
+  }
+}
+
+let currentForgotEmail = '';
+let resendTimerInterval = null;
+
+function startResendCooldown(seconds = 60) {
+  if (!el.resendOtpBtn || !el.resendOtpTimer) return;
+  clearInterval(resendTimerInterval);
+  let remaining = seconds;
+  el.resendOtpBtn.hidden = true;
+  el.resendOtpTimer.hidden = false;
+  if (el.resendCountdown) el.resendCountdown.textContent = remaining;
+
+  resendTimerInterval = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(resendTimerInterval);
+      el.resendOtpBtn.hidden = false;
+      el.resendOtpTimer.hidden = true;
+    } else {
+      if (el.resendCountdown) el.resendCountdown.textContent = remaining;
+    }
+  }, 1000);
 }
 
 function showForgotStep(step) {
   el.forgotStep1.hidden = step !== 1;
   el.forgotStep2.hidden = step !== 2;
+  if (step === 1) {
+    if (el.authForgotError) el.authForgotError.textContent = '';
+    if (el.authForgotSuccess) el.authForgotSuccess.textContent = '';
+    if (el.forgotSubmitBtn) {
+      el.forgotSubmitBtn.textContent = 'Send Code →';
+    }
+    if (el.forgotEmail) el.forgotEmail.focus();
+  } else if (step === 2) {
+    if (el.authResetError) el.authResetError.textContent = '';
+    if (el.authResetSuccess) el.authResetSuccess.textContent = '';
+    if (el.resetToken) {
+      el.resetToken.value = '';
+      el.resetToken.focus();
+    }
+    if (el.resetNewPassword) el.resetNewPassword.value = '';
+    if (el.resetConfirmPassword) el.resetConfirmPassword.value = '';
+    if (el.resetPwStrength) el.resetPwStrength.textContent = '';
+  }
 }
 
 el.gotoRegisterBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('register'); });
 el.gotoForgotBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('forgot'); });
 el.gotoLoginFromRegBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('login'); });
 el.gotoLoginFromForgotBtn.addEventListener('click', (e) => { e.preventDefault(); showAuthView('login'); });
-el.backToStep1Btn.addEventListener('click', (e) => { e.preventDefault(); showForgotStep(1); });
+el.backToStep1Btn.addEventListener('click', (e) => {
+  e.preventDefault();
+  showForgotStep(1);
+});
 
 // Password visibility toggles
 function setupPasswordToggle(btn, input) {
@@ -503,6 +572,9 @@ function setupPasswordToggle(btn, input) {
 setupPasswordToggle(el.toggleLoginPw, el.authLoginPassword);
 setupPasswordToggle(el.toggleRegPw, el.registerPassword);
 setupPasswordToggle(el.toggleResetPw, el.resetNewPassword);
+if (el.toggleConfirmResetPw && el.resetConfirmPassword) {
+  setupPasswordToggle(el.toggleConfirmResetPw, el.resetConfirmPassword);
+}
 if (el.toggleEditPw && el.editNewPassword) {
   setupPasswordToggle(el.toggleEditPw, el.editNewPassword);
 }
@@ -517,11 +589,18 @@ el.authLoginForm.addEventListener('submit', async (e) => {
   el.loginSubmitBtn.classList.add('is-loading');
   el.loginSubmitBtn.textContent = 'Signing in...';
 
-  const email = el.authLoginEmail.value.trim();
+  const email = (el.authLoginEmail ? el.authLoginEmail.value : '').trim();
   const password = el.authLoginPassword.value;
 
   if (!email || !password) {
-    el.authLoginError.textContent = 'Please enter both email and password.';
+    el.authLoginError.textContent = 'Please enter your email address and password.';
+    el.loginSubmitBtn.disabled = false;
+    el.loginSubmitBtn.classList.remove('is-loading');
+    el.loginSubmitBtn.textContent = 'Sign In to EXPTRACK →';
+    return;
+  }
+  if (!email.includes('@')) {
+    el.authLoginError.textContent = 'Please enter a valid email address.';
     el.loginSubmitBtn.disabled = false;
     el.loginSubmitBtn.classList.remove('is-loading');
     el.loginSubmitBtn.textContent = 'Sign In to EXPTRACK →';
@@ -529,13 +608,18 @@ el.authLoginForm.addEventListener('submit', async (e) => {
   }
 
   try {
-    const res = await fetch(`${AUTH_API}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
+    let res;
+    try {
+      res = await fetch(`${AUTH_API}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+    } catch (networkErr) {
+      throw new Error('Cannot reach the server. Please make sure the server is running and try again.');
+    }
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Login failed. Please check your credentials.');
     }
@@ -573,10 +657,9 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
   el.registerSubmitBtn.textContent = 'Creating account...';
 
   const fullName = el.registerFullname.value.trim();
-  const email = el.registerEmail.value.trim();
+  const email = (el.registerEmail ? el.registerEmail.value : '').trim();
   const password = el.registerPassword.value;
-  const phone = el.registerPhone.value.trim();
-  const monthlyBudget = el.registerBudget.value ? Number(el.registerBudget.value) : null;
+  const monthlyBudget = el.registerBudget && el.registerBudget.value ? Number(el.registerBudget.value) : null;
 
   if (!fullName) {
     el.authRegisterError.textContent = 'Full name is required.';
@@ -585,7 +668,13 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
     return;
   }
   if (!email) {
-    el.authRegisterError.textContent = 'Email address is required.';
+    el.authRegisterError.textContent = 'Please provide an email address.';
+    el.registerSubmitBtn.disabled = false;
+    el.registerSubmitBtn.textContent = 'Register & Start with Zero →';
+    return;
+  }
+  if (!email.includes('@')) {
+    el.authRegisterError.textContent = 'Please enter a valid email address.';
     el.registerSubmitBtn.disabled = false;
     el.registerSubmitBtn.textContent = 'Register & Start with Zero →';
     return;
@@ -597,14 +686,26 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
     return;
   }
 
-  try {
-    const res = await fetch(`${AUTH_API}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fullName, email, password, phone, monthlyBudget })
-    });
+  const payload = {
+    fullName,
+    email,
+    password,
+    monthlyBudget
+  };
 
-    const data = await res.json();
+  try {
+    let res;
+    try {
+      res = await fetch(`${AUTH_API}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (networkErr) {
+      throw new Error('Cannot reach the server. Please make sure the server is running and try again.');
+    }
+
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to register account.');
     }
@@ -633,100 +734,294 @@ el.authRegisterForm.addEventListener('submit', async (e) => {
   }
 });
 
-// 3a. Forgot Password — Step 1: Request reset token
+// Auto-restrict OTP input to numbers only (max 6 digits)
+if (el.resetToken) {
+  el.resetToken.addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+  });
+}
+
+// 3a. Forgot Password — Step 1: Request 6-digit OTP
 el.authForgotForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   el.authForgotError.textContent = '';
   el.authForgotSuccess.textContent = '';
   el.forgotSubmitBtn.disabled = true;
-  el.forgotSubmitBtn.textContent = 'Sending token...';
+  el.forgotSubmitBtn.textContent = 'Sending Code...';
 
-  const email = el.forgotEmail.value.trim();
-
+  const email = (el.forgotEmail ? el.forgotEmail.value : '').trim();
   if (!email) {
     el.authForgotError.textContent = 'Please enter your registered email address.';
     el.forgotSubmitBtn.disabled = false;
-    el.forgotSubmitBtn.textContent = 'Send Reset Token →';
+    el.forgotSubmitBtn.textContent = 'Send Code →';
+    return;
+  }
+  if (!email.includes('@')) {
+    el.authForgotError.textContent = 'Please enter a valid email address.';
+    el.forgotSubmitBtn.disabled = false;
+    el.forgotSubmitBtn.textContent = 'Send Code →';
     return;
   }
 
-  try {
-    const res = await fetch(`${AUTH_API}/forgot-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
+  currentForgotEmail = email;
 
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to send reset token.');
+  try {
+    let res;
+    try {
+      res = await fetch(`${AUTH_API}/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+    } catch (networkErr) {
+      throw new Error('Cannot reach the server. Please ensure EXPTRACK server is running and try again.');
     }
 
-    // Move to step 2 regardless — prevents user enumeration
-    el.authForgotSuccess.textContent = 'Token sent (or generated)! Check your email or server logs. Paste it below.';
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to send verification code.');
+    }
+
+    if (el.otpSentEmailDisplay) {
+      el.otpSentEmailDisplay.textContent = data.maskedEmail || maskEmail(currentForgotEmail);
+    }
+
+    el.authForgotSuccess.textContent = data.message || 'A verification code has been sent.';
+    startResendCooldown(60);
+
     setTimeout(() => {
       showForgotStep(2);
       if (el.resetToken) el.resetToken.focus();
-    }, 1200);
+    }, 600);
   } catch (err) {
     el.authForgotError.textContent = err.message;
   } finally {
     el.forgotSubmitBtn.disabled = false;
-    el.forgotSubmitBtn.textContent = 'Send Reset Token →';
+    el.forgotSubmitBtn.textContent = 'Send Code →';
   }
 });
 
-// 3b. Reset Password — Step 2: Submit token + new password
+// Resend OTP Action
+if (el.resendOtpBtn) {
+  el.resendOtpBtn.addEventListener('click', async () => {
+    if (!currentForgotEmail) {
+      showForgotStep(1);
+      return;
+    }
+
+    el.resendOtpBtn.disabled = true;
+    el.authResetError.textContent = '';
+    el.authResetSuccess.textContent = 'Requesting fresh code...';
+
+    try {
+      const res = await fetch(`${AUTH_API}/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: currentForgotEmail })
+      });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data.error || 'Failed to resend verification code.');
+
+      el.authResetSuccess.textContent = data.message || 'A new verification code has been dispatched.';
+      startResendCooldown(60);
+    } catch (err) {
+      el.authResetError.textContent = err.message;
+      el.authResetSuccess.textContent = '';
+      el.resendOtpBtn.disabled = false;
+    }
+  });
+}
+
+// 3b. Reset Password — Step 2: Submit 6-digit OTP + new password + confirm password
 if (el.authResetForm) {
   el.authResetForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     el.authResetError.textContent = '';
     el.authResetSuccess.textContent = '';
     el.resetSubmitBtn.disabled = true;
-    el.resetSubmitBtn.textContent = 'Setting password...';
+    el.resetSubmitBtn.textContent = 'Resetting password...';
 
-    const token = el.resetToken.value.trim();
-    const newPassword = el.resetNewPassword.value;
+    const otp = (el.resetToken ? el.resetToken.value : '').trim();
+    const newPassword = el.resetNewPassword ? el.resetNewPassword.value : '';
+    const confirmPassword = el.resetConfirmPassword ? el.resetConfirmPassword.value : '';
 
-    if (!token) {
-      el.authResetError.textContent = 'Please paste the reset token from your email or server logs.';
+    if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+      el.authResetError.textContent = 'Please enter the complete 6-digit verification code.';
       el.resetSubmitBtn.disabled = false;
-      el.resetSubmitBtn.textContent = 'Set New Password →';
+      el.resetSubmitBtn.textContent = 'Reset Password →';
+      if (el.resetToken) el.resetToken.focus();
       return;
     }
     if (!newPassword || newPassword.length < 8) {
-      el.authResetError.textContent = 'New password must be at least 8 characters.';
+      el.authResetError.textContent = 'New password must be at least 8 characters long.';
       el.resetSubmitBtn.disabled = false;
-      el.resetSubmitBtn.textContent = 'Set New Password →';
+      el.resetSubmitBtn.textContent = 'Reset Password →';
+      if (el.resetNewPassword) el.resetNewPassword.focus();
+      return;
+    }
+    if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+      el.authResetError.textContent = 'Passwords do not match. Please re-enter.';
+      el.resetSubmitBtn.disabled = false;
+      el.resetSubmitBtn.textContent = 'Reset Password →';
+      if (el.resetConfirmPassword) el.resetConfirmPassword.focus();
       return;
     }
 
     try {
-      const res = await fetch(`${AUTH_API}/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword })
-      });
+      let res;
+      try {
+        res = await fetch(`${AUTH_API}/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: currentForgotEmail,
+            otp,
+            newPassword
+          })
+        });
+      } catch (networkErr) {
+        throw new Error('Cannot reach the server. Please make sure the server is running and try again.');
+      }
 
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) {
         throw new Error(data.error || 'Password reset failed.');
       }
 
-      el.authResetSuccess.textContent = 'Password reset successfully! Redirecting to Sign In…';
+      el.authResetSuccess.textContent = '✓ Password reset successfully! Redirecting to Sign In…';
       setTimeout(() => {
         showAuthView('login');
-        el.authLoginEmail.value = el.forgotEmail.value || '';
-        el.authLoginPassword.value = '';
-        el.authLoginPassword.focus();
-      }, 1500);
+        if (el.authLoginEmail) el.authLoginEmail.value = currentForgotEmail || el.forgotEmail.value || '';
+        if (el.authLoginPassword) {
+          el.authLoginPassword.value = '';
+          el.authLoginPassword.focus();
+        }
+      }, 1200);
     } catch (err) {
       el.authResetError.textContent = err.message;
     } finally {
       el.resetSubmitBtn.disabled = false;
-      el.resetSubmitBtn.textContent = 'Set New Password →';
+      el.resetSubmitBtn.textContent = 'Reset Password →';
     }
   });
+}
+
+// ================= GOOGLE SIGN-IN INTEGRATION =================
+
+let googleClientId = '';
+let googleSignInInitialized = false;
+
+async function fetchAppConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const data = await res.json();
+      googleClientId = (data.googleClientId || '').trim();
+      initGoogleSignIn();
+    }
+  } catch (err) {
+    console.warn('Could not load app configuration:', err.message);
+  }
+}
+
+function initGoogleSignIn() {
+  if (!googleClientId) {
+    // Hide Google button sections if Google Client ID not configured
+    if (el.googleLoginSection) el.googleLoginSection.hidden = true;
+    if (el.googleRegisterSection) el.googleRegisterSection.hidden = true;
+    return;
+  }
+
+  // Ensure sections are visible
+  if (el.googleLoginSection) el.googleLoginSection.hidden = false;
+  if (el.googleRegisterSection) el.googleRegisterSection.hidden = false;
+
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+    // Retry when GIS script finishes loading
+    setTimeout(initGoogleSignIn, 250);
+    return;
+  }
+
+  try {
+    if (!googleSignInInitialized) {
+      google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredentialResponse,
+        auto_select: false
+      });
+      googleSignInInitialized = true;
+    }
+
+    if (el.googleLoginContainer && el.googleLoginContainer.childElementCount === 0) {
+      google.accounts.id.renderButton(el.googleLoginContainer, {
+        theme: 'outline',
+        size: 'large',
+        type: 'standard',
+        shape: 'rectangular',
+        text: 'continue_with',
+        logo_alignment: 'left',
+        width: 320
+      });
+    }
+
+    if (el.googleRegisterContainer && el.googleRegisterContainer.childElementCount === 0) {
+      google.accounts.id.renderButton(el.googleRegisterContainer, {
+        theme: 'outline',
+        size: 'large',
+        type: 'standard',
+        shape: 'rectangular',
+        text: 'continue_with',
+        logo_alignment: 'left',
+        width: 320
+      });
+    }
+  } catch (err) {
+    console.warn('Error rendering Google Sign-In button:', err.message);
+  }
+}
+
+async function handleGoogleCredentialResponse(response) {
+  const credential = response ? response.credential : null;
+  if (!credential) return;
+
+  if (el.authLoginError) el.authLoginError.textContent = '';
+  if (el.authRegisterError) el.authRegisterError.textContent = '';
+
+  try {
+    const res = await fetch(`${AUTH_API}/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential })
+    });
+
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Google Sign-In failed.');
+    }
+
+    state.token = data.token;
+    localStorage.setItem('ledger_auth_token', data.token);
+    state.profile = { ...data.user, loggedIn: true };
+
+    updateGreeting();
+    renderProfileView();
+
+    animateAuthCardOut(() => {
+      closeAuthModal();
+      playCurtainReveal();
+    });
+
+    showGreetingToast(`${getTimeGreeting()}, ${state.profile.fullName}! Welcome to EXPTRACK.`);
+    await loadMonth();
+  } catch (err) {
+    if (!el.authLoginView.hidden && el.authLoginError) {
+      el.authLoginError.textContent = err.message;
+    } else if (!el.authRegisterView.hidden && el.authRegisterError) {
+      el.authRegisterError.textContent = err.message;
+    } else {
+      showGreetingToast(err.message, true);
+    }
+  }
 }
 
 // ----------------- Profile Modal & Profile Management -----------------
@@ -748,7 +1043,6 @@ function renderProfileView() {
   el.modalAvatar.textContent = getInitials(p.fullName);
   el.modalUserName.textContent = p.fullName || 'User Profile';
   el.viewFullName.textContent = p.fullName || '—';
-  el.viewPhone.textContent = p.phone || '—';
   el.viewEmail.textContent = p.email || '—';
   el.viewOccupation.textContent = p.occupation || '—';
   el.viewBudget.textContent = p.monthlyBudget ? formatMoney(p.monthlyBudget) : '—';
@@ -789,7 +1083,6 @@ window.addEventListener('click', (e) => {
 el.startEditProfileBtn.addEventListener('click', () => {
   const p = state.profile;
   el.editFullName.value = p.fullName || '';
-  el.editPhone.value = p.phone || '';
   el.editEmail.value = p.email || '';
   el.editOccupation.value = p.occupation || '';
   el.editBudget.value = p.monthlyBudget || '';
@@ -821,7 +1114,6 @@ el.profileEditForm.addEventListener('submit', async (e) => {
 
   const payload = {
     fullName,
-    phone: el.editPhone.value.trim(),
     email: el.editEmail.value.trim(),
     occupation: el.editOccupation.value.trim(),
     monthlyBudget: el.editBudget.value ? Number(el.editBudget.value) : null
@@ -842,7 +1134,7 @@ el.profileEditForm.addEventListener('submit', async (e) => {
       body: JSON.stringify(payload)
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to save profile changes.');
     }
@@ -851,7 +1143,7 @@ el.profileEditForm.addEventListener('submit', async (e) => {
       // Token is now invalid (tokenVersion bumped server-side) — force re-login
       state.token = null;
       localStorage.removeItem('ledger_auth_token');
-      state.profile = { id: null, fullName: '', phone: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
+      state.profile = { id: null, fullName: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
 
       closeModals();
       updateGreeting();
@@ -898,7 +1190,7 @@ el.logoutBtn.addEventListener('click', async () => {
 
   state.token = null;
   localStorage.removeItem('ledger_auth_token');
-  state.profile = { id: null, fullName: '', phone: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
+  state.profile = { id: null, fullName: '', email: '', occupation: '', monthlyBudget: null, loggedIn: false };
 
   closeModals();
   updateGreeting();
@@ -1059,21 +1351,23 @@ async function loadMonth() {
       authFetch(`${API}/months`)
     ]);
 
-    const expenses = await expensesRes.json();
-    const summary = await summaryRes.json();
-    const months = await monthsRes.json();
+    const expenses = await safeJson(expensesRes);
+    const summary = await safeJson(summaryRes);
+    const months = await safeJson(monthsRes);
 
-    state.cachedExpenses = expenses || [];
-    state.cachedSummary = summary || {};
+    state.cachedExpenses = Array.isArray(expenses) ? expenses : [];
+    state.cachedSummary = (summary && typeof summary === 'object') ? summary : {};
 
     renderStats(state.cachedSummary);
     renderBudgetProgress(state.cachedSummary);
     renderMixedCurrencyWarning(state.cachedSummary);
     renderBreakdown();
     renderFilteredEntries();
-    updateMonthJumpDropdown(months);
+    updateMonthJumpDropdown(Array.isArray(months) ? months : []);
   } catch (err) {
     console.error('Failed to load ledger data:', err);
+    el.breakdownBars.innerHTML = `<p class="empty-note" style="color:var(--brick)">${escapeHtml(err.message)}</p>`;
+    el.entriesList.innerHTML = `<p class="empty-note" style="color:var(--brick)">Could not load entries — ${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -1340,11 +1634,11 @@ el.form.addEventListener('submit', async (evt) => {
     }
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
+      const err = await safeJson(res).catch(() => ({}));
       throw new Error(err.error || 'Something went wrong saving that entry.');
     }
 
-    const saved = await res.json().catch(() => ({}));
+    const saved = await safeJson(res).catch(() => ({}));
 
     // Surface local-fallback warning if Supabase was unavailable
     if (saved.warning) {
@@ -1369,7 +1663,7 @@ async function deleteExpense(id) {
     if (res.ok || res.status === 204) {
       // Check for warning in the body (non-204 responses include a body)
       if (res.status !== 204) {
-        const body = await res.json().catch(() => ({}));
+        const body = await safeJson(res).catch(() => ({}));
         if (body.warning) showGreetingToast(`⚠ ${body.warning}`, true);
       }
       if (state.editingId === id) resetForm();
@@ -1415,6 +1709,9 @@ el.nextMonth.addEventListener('click', () => {
 // ----------------- Initialization -----------------
 
 async function init() {
+  // Fetch dynamic config (including Google Client ID)
+  await fetchAppConfig();
+
   const savedSymbol = localStorage.getItem('ledger_currency_symbol');
   const savedLocale = localStorage.getItem('ledger_currency_locale');
   if (savedSymbol && el.currencySelect) {

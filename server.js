@@ -5,10 +5,16 @@ const path = require('path');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const { OAuth2Client } = require('google-auth-library');
 const db = require('./db');
+const mailer = require('./mailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// --------------- Google OAuth Client ---------------
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // --------------- JWT Secret ---------------
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -37,9 +43,10 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --------------- Rate Limiters ---------------
+// Applied to all auth routes: register, login, google, forgot-password, reset-password
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 60,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again in 15 minutes.' }
@@ -97,35 +104,56 @@ function validExpenseBody(body) {
   return true;
 }
 
-// ================= AUTH ROUTES =================
+// ================= CONFIG & STATUS ROUTES =================
+
+// Frontend config endpoint — exposes GOOGLE_CLIENT_ID without hardcoding in HTML
+app.get('/api/config', (req, res) => {
+  res.json({
+    googleClientId: GOOGLE_CLIENT_ID
+  });
+});
 
 // Status check (Supabase status)
 app.get('/api/status', (req, res) => {
   res.json({
     supabase: db.isSupabaseConfigured(),
+    emailConfigured: mailer.isEmailConfigured(),
+    googleAuth: Boolean(GOOGLE_CLIENT_ID),
     message: db.isSupabaseConfigured()
       ? 'Connected to Supabase Cloud Database'
       : 'Running in Local Database Mode (Configure SUPABASE_URL and SUPABASE_KEY in .env to connect Supabase)'
   });
 });
 
-// Register new user
+// ================= AUTH ROUTES =================
+
+// 1. Register new user (email + password)
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
-    const { email, password, fullName, phone, occupation, monthlyBudget } = req.body;
+    const {
+      fullName,
+      email,
+      password,
+      occupation,
+      monthlyBudget
+    } = req.body;
 
+    if (!fullName || !String(fullName).trim()) {
+      return res.status(400).json({ error: 'Full name is required.' });
+    }
     if (!email || !String(email).trim()) {
-      return res.status(400).json({ error: 'Valid email is required.' });
+      return res.status(400).json({ error: 'Email address is required.' });
     }
     if (!password || String(password).length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
     }
 
+    const cleanEmail = String(email).trim().toLowerCase();
+
     const user = await db.createUser({
-      email,
+      email: cleanEmail,
       password,
-      fullName: fullName || 'New User',
-      phone,
+      fullName: fullName.trim(),
       occupation,
       monthlyBudget
     });
@@ -139,9 +167,9 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
-        phone: user.phone || '',
         occupation: user.occupation || '',
-        monthlyBudget: user.monthlyBudget || null
+        monthlyBudget: user.monthlyBudget || null,
+        authProvider: user.authProvider || 'password'
       }
     });
   } catch (err) {
@@ -149,18 +177,28 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-// Login existing user
+// 2. Login existing user (email + password)
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' });
+    const cleanEmail = (email || '').trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
+      return res.status(400).json({ error: 'Email address and password are required.' });
     }
 
-    const user = await db.findUserByEmail(email);
+    // Look up user by email
+    const user = await db.findUserByEmail(cleanEmail);
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    // Check if account signs in with Google and has no password set
+    if (user.authProvider === 'google' && !user.passwordHash) {
+      return res.status(400).json({
+        error: 'This account uses Google Sign-In — please continue with Google.'
+      });
     }
 
     const valid = await db.verifyPassword(password, user.passwordHash);
@@ -177,9 +215,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
-        phone: user.phone || '',
         occupation: user.occupation || '',
-        monthlyBudget: user.monthlyBudget || null
+        monthlyBudget: user.monthlyBudget || null,
+        authProvider: user.authProvider || 'password'
       }
     });
   } catch (err) {
@@ -187,89 +225,217 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   }
 });
 
-// Step 1 — Request password reset (generates a token, logs it to console)
+// 3. Google Sign-In / Sign-Up
+app.post('/api/auth/google', authLimiter, async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    if (!credential) {
+      return res.status(400).json({ error: 'Google credential is required.' });
+    }
+    if (!GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ error: 'Google Sign-In is not configured on the server.' });
+    }
+
+    // Verify Google ID token
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID
+      });
+      payload = ticket.getPayload();
+    } catch (verifyErr) {
+      console.error('Google token verification failed:', verifyErr.message);
+      return res.status(401).json({ error: 'Invalid Google credential token.' });
+    }
+
+    if (!payload) {
+      return res.status(401).json({ error: 'Could not retrieve Google profile payload.' });
+    }
+
+    const { email, name, sub, email_verified } = payload;
+
+    if (!email_verified) {
+      return res.status(400).json({ error: 'Your Google email address is not verified.' });
+    }
+
+    // Look up, link, or create user
+    const user = await db.findOrCreateGoogleUser({
+      email,
+      name: name || '',
+      googleId: sub
+    });
+
+    const token = issueJwt(user);
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        occupation: user.occupation || '',
+        monthlyBudget: user.monthlyBudget || null,
+        authProvider: user.authProvider || 'google'
+      }
+    });
+  } catch (err) {
+    console.error('Error in /api/auth/google:', err.message);
+    res.status(400).json({ error: err.message || 'Google authentication failed.' });
+  }
+});
+
+// 4. OTP-based Forgot Password — Step 1: Request 6-digit numeric OTP
 app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email || !String(email).trim()) {
-      return res.status(400).json({ error: 'Email address is required.' });
+    const cleanEmail = (email || '').trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Please enter your registered email address.' });
     }
 
-    const user = await db.findUserByEmail(email);
+    const user = await db.findUserByEmail(cleanEmail);
 
-    // Always respond with success to prevent user enumeration
+    // Only allow password reset if user exists
     if (!user) {
-      return res.json({
-        success: true,
-        message: 'If an account exists for that email, a reset token has been generated.'
+      return res.status(404).json({
+        error: 'This email is not registered with EXPTRACK. Please enter your registered email or create an account.'
       });
     }
 
-    // Generate a cryptographically random raw token (never stored — only its hash is)
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
+    // If account signs in with Google and has no password set
+    if (user.authProvider === 'google' && !user.passwordHash) {
+      return res.status(400).json({
+        error: 'This account signs in with Google — no password to reset.'
+      });
+    }
 
-    await db.createPasswordReset(user.id, rawToken, expiresAt);
+    // Generate secure 6-digit numeric OTP (100000 - 999999)
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // TODO: send email with the reset link/token here.
-    // e.g. sendMail({ to: user.email, subject: 'Reset your EXPTRACK password',
-    //   body: `Your reset token: ${rawToken}\nExpires: ${expiresAt.toISOString()}` })
-    console.log(`[PASSWORD RESET] Token for ${user.email}: ${rawToken} (expires ${expiresAt.toISOString()})`);
+    // Store hashed OTP — never store or log raw OTP
+    await db.createPasswordReset(user.id, otpHash, expiresAt);
+
+    // Send OTP via Gmail SMTP
+    try {
+      await mailer.sendOtpEmail(user.email, user.fullName, otp);
+    } catch (mailErr) {
+      console.warn('Mailer dispatch error:', mailErr.message);
+    }
+
+    // Compute masked email for friendly UI confirmation (e.g. ra*****@gmail.com)
+    const parts = user.email.split('@');
+    const u = parts[0] || '';
+    const d = parts[1] || '';
+    const maskedEmail = `${u.slice(0, 2)}•••••@${d}`;
 
     res.json({
       success: true,
-      message: 'If an account exists for that email, a reset token has been generated. Check the server logs or your email (once configured).'
+      message: `Verification code sent to your email (${maskedEmail}).`,
+      maskedEmail
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Failed to initiate password reset.' });
+    console.error('Error in forgot-password:', err.message);
+    res.status(500).json({ error: 'Failed to initiate password reset. Please try again.' });
   }
 });
 
-// Step 2 — Consume token and set new password
+// 5. OTP-based Forgot Password — Step 2: Verify 6-digit OTP and set new password
 app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
   try {
-    const { token, newPassword } = req.body;
+    const { email, otp, newPassword } = req.body;
 
-    if (!token || !String(token).trim()) {
-      return res.status(400).json({ error: 'Reset token is required.' });
+    const cleanEmail = (email || '').trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Email address is required.' });
     }
+
+    const verificationCode = String(otp || '').trim();
+    if (!verificationCode || verificationCode.length !== 6 || !/^\d{6}$/.test(verificationCode)) {
+      return res.status(400).json({ error: 'A valid 6-digit verification code is required.' });
+    }
+
     if (!newPassword || String(newPassword).length < 8) {
       return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
     }
 
-    // consumePasswordReset validates hash, expiry, and used flag, then marks it used
-    const { userId } = await db.consumePasswordReset(token);
+    const user = await db.findUserByEmail(cleanEmail);
 
-    await db.resetPassword(userId, newPassword);
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired verification code. Please request a new code.' });
+    }
 
-    // Bump tokenVersion to invalidate all previously issued JWTs for this user
-    await db.bumpTokenVersion(userId);
+    // Retrieve latest active reset record
+    const resetRecord = await db.getLatestPasswordReset(user.id);
+    if (!resetRecord || resetRecord.used) {
+      return res.status(400).json({ error: 'Invalid or expired verification code. Please request a new code.' });
+    }
+
+    // Check attempt lockout (max 5 attempts)
+    if ((resetRecord.attempts || 0) >= 5) {
+      await db.recordFailedResetAttempt(resetRecord);
+      return res.status(400).json({
+        error: 'Too many failed attempts. This verification code has been invalidated. Please request a new code.'
+      });
+    }
+
+    // Check expiry (10 minutes)
+    if (new Date(resetRecord.expiresAt) < new Date()) {
+      return res.status(400).json({ error: 'This verification code has expired. Please request a new code.' });
+    }
+
+    // Verify SHA-256 hash
+    const submittedHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
+    if (submittedHash !== resetRecord.otpHash) {
+      const { attempts, lockedOut } = await db.recordFailedResetAttempt(resetRecord);
+      if (lockedOut) {
+        return res.status(400).json({
+          error: 'Too many failed attempts. This verification code has been invalidated. Please request a new code.'
+        });
+      }
+      const remaining = Math.max(0, 5 - attempts);
+      return res.status(400).json({
+        error: `Invalid verification code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+      });
+    }
+
+    // Hash matches: update password, consume OTP, and bump tokenVersion
+    await db.resetPassword(user.id, newPassword);
+    await db.markPasswordResetUsed(resetRecord);
+    await db.bumpTokenVersion(user.id);
 
     res.json({
       success: true,
       message: 'Password reset successfully. Please sign in with your new password.'
     });
   } catch (err) {
+    console.error('Error in reset-password:', err.message);
     res.status(400).json({ error: err.message || 'Failed to reset password.' });
   }
 });
 
-// Get current logged-in user profile
+// 6. Get current logged-in user profile
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({
     user: {
       id: req.user.id,
       email: req.user.email,
       fullName: req.user.fullName,
-      phone: req.user.phone || '',
       occupation: req.user.occupation || '',
-      monthlyBudget: req.user.monthlyBudget || null
+      monthlyBudget: req.user.monthlyBudget || null,
+      authProvider: req.user.authProvider || 'password'
     }
   });
 });
 
-// Update profile
+// 7. Update profile
 app.put('/api/auth/profile', authMiddleware, async (req, res) => {
   try {
     const { newPassword } = req.body;
@@ -290,7 +456,7 @@ app.put('/api/auth/profile', authMiddleware, async (req, res) => {
   }
 });
 
-// Logout — stateless JWT: client removes the token; server just acknowledges
+// 8. Logout — stateless JWT: client removes the token; server just acknowledges
 app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
@@ -371,7 +537,6 @@ app.delete('/api/expenses/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     const result = await db.deleteExpense(req.userId, id);
     if (result.localFallback) {
-      // Send 200 with warning instead of 204 so the body can be read
       return res.json({ success: true, warning: 'Deleted locally — Supabase is unavailable. Data may not persist across redeploys.' });
     }
     res.status(204).send();
@@ -384,4 +549,5 @@ app.delete('/api/expenses/:id', authMiddleware, async (req, res) => {
 app.listen(PORT, () => {
   const isLocal = !process.env.RENDER;
   console.log(`✅ EXPTRACK server running on port ${PORT}${isLocal ? ` → http://localhost:${PORT}` : ''}`);
+  mailer.verifyTransporter().catch((err) => console.warn('Mailer verify notice:', err.message));
 });
