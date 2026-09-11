@@ -554,6 +554,10 @@ h1, h2, h3 {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .greeting-user-btn:hover .greeting-name {
@@ -694,9 +698,10 @@ h1, h2, h3 {
 
 .amount-input-box {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   background: var(--paper);
   border: 1px solid var(--rule-strong);
+  overflow: hidden;
 }
 
 .currency-prefix {
@@ -717,11 +722,11 @@ select.currency-prefix {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  padding: 0 16px 0 8px;
+  padding: 0 20px 0 10px;
   background-color: var(--paper-alt);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%2355634F' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 5px center;
+  background-position: right 6px center;
   border: none;
   border-right: 1px solid var(--rule-strong);
   font-family: 'IBM Plex Mono', monospace;
@@ -730,6 +735,10 @@ select.currency-prefix {
   color: var(--ink);
   cursor: pointer;
   outline: none;
+  align-self: stretch;
+  box-sizing: border-box;
+  margin: 0;
+  border-radius: 0;
 }
 
 select.currency-prefix:focus {
@@ -739,6 +748,7 @@ select.currency-prefix:focus {
 
 .amount-input-box input {
   flex: 1;
+  min-width: 0;
   border: none !important;
   background: transparent !important;
   padding: 9px 10px;
@@ -746,6 +756,8 @@ select.currency-prefix:focus {
   font-size: 14px;
   color: var(--ink);
   outline: none !important;
+  box-sizing: border-box;
+  margin: 0;
 }
 
 .amount-input-box:focus-within {
@@ -1006,15 +1018,24 @@ select.currency-prefix:focus {
 
 .entries-head {
   display: grid;
-  grid-template-columns: 85px 75px 120px 1fr 115px 55px;
+  grid-template-columns: 80px 68px 115px minmax(90px, 1fr) 120px 84px;
   font-size: 12px;
   color: var(--ink-soft);
   border-bottom: 1px solid var(--ink);
   padding-bottom: 8px;
   gap: 8px;
+  align-items: center;
 }
 
-.col-amount { text-align: right; }
+.col-amount {
+  text-align: right;
+  padding-right: 8px;
+}
+
+.col-actions {
+  text-align: right;
+  padding-right: 4px;
+}
 
 .entries-list {
   display: flex;
@@ -1023,7 +1044,7 @@ select.currency-prefix:focus {
 
 .entry-row {
   display: grid;
-  grid-template-columns: 85px 75px 120px 1fr 115px 55px;
+  grid-template-columns: 80px 68px 115px minmax(90px, 1fr) 120px 84px;
   gap: 8px;
   align-items: center;
   padding: 11px 0;
@@ -1031,7 +1052,11 @@ select.currency-prefix:focus {
   font-size: 14px;
 }
 
-.entry-row .cell-date { color: var(--ink-soft); font-size: 13px; }
+.entry-row .cell-date {
+  color: var(--ink-soft);
+  font-size: 13px;
+  white-space: nowrap;
+}
 
 .type-badge {
   display: inline-block;
@@ -1042,6 +1067,7 @@ select.currency-prefix:focus {
   text-transform: uppercase;
   text-align: center;
   width: fit-content;
+  white-space: nowrap;
 }
 
 .type-badge.badge-debit {
@@ -1056,9 +1082,20 @@ select.currency-prefix:focus {
   border: 1px solid rgba(31, 107, 56, 0.3);
 }
 
+.cell-category {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .entry-row .cell-amount {
   font-family: 'IBM Plex Mono', monospace;
   text-align: right;
+  white-space: nowrap;
+  padding-right: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .entry-row .cell-amount.credit-amount {
@@ -1079,8 +1116,11 @@ select.currency-prefix:focus {
 
 .row-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .row-actions button {
@@ -1089,13 +1129,15 @@ select.currency-prefix:focus {
   cursor: pointer;
   font-size: 15px;
   color: var(--ink-soft);
-  padding: 6px;
+  padding: 4px;
   min-width: 32px;
   min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 4px;
+  flex-shrink: 0;
+  box-sizing: border-box;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
@@ -1804,6 +1846,14 @@ select.currency-prefix:focus {
   /* Table horizontal scrolling */
   .mobile-table-hint {
     display: block;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: var(--paper-alt);
+    border: 1px dashed var(--rule-strong);
+    padding: 6px 10px;
+    margin: -4px 0 10px;
+    border-radius: 4px;
+    letter-spacing: 0.2px;
   }
 
   .entries-table-container {
@@ -1813,7 +1863,8 @@ select.currency-prefix:focus {
 
   .entries-head,
   .entry-row {
-    min-width: 520px;
+    min-width: 580px;
+    grid-template-columns: 80px 68px 115px minmax(90px, 1fr) 120px 84px;
   }
 
   .entry-row {
@@ -1821,9 +1872,10 @@ select.currency-prefix:focus {
   }
 
   .row-actions button {
-    min-width: 36px;
-    min-height: 36px;
-    font-size: 15px;
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 14px;
+    padding: 4px;
   }
 
   /* Auth & Profile Modals */
