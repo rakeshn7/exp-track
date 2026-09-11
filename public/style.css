@@ -1087,14 +1087,29 @@ select.currency-prefix:focus {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--ink-soft);
-  padding: 2px;
+  padding: 6px;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.row-actions button:hover { color: var(--ink); }
+.row-actions button:hover,
+.row-actions button:focus-visible {
+  background: var(--paper-alt);
+  color: var(--ink);
+}
 
-.row-actions .delete-btn:hover { color: var(--brick); }
+.row-actions .delete-btn:hover,
+.row-actions .delete-btn:focus-visible {
+  background: var(--brick-light);
+  color: var(--brick);
+}
 
 .empty-note {
   color: var(--ink-soft);
@@ -1106,17 +1121,18 @@ select.currency-prefix:focus {
 
 .modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(31, 46, 34, 0.45);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
 .modal-backdrop[hidden] {
@@ -1129,8 +1145,14 @@ select.currency-prefix:focus {
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
   width: 100%;
   max-width: 520px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 26px;
   animation: modalFadeIn 0.18s ease-out;
+  box-sizing: border-box;
+  margin: auto;
 }
 
 @keyframes modalFadeIn {
@@ -1355,9 +1377,10 @@ select.currency-prefix:focus {
 
 .auth-backdrop {
   backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   background: rgba(31, 46, 34, 0.45);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   position: fixed;
   inset: 0;
@@ -1365,6 +1388,7 @@ select.currency-prefix:focus {
   padding: 16px;
   box-sizing: border-box;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .auth-backdrop[hidden] {
@@ -1377,9 +1401,14 @@ select.currency-prefix:focus {
   background: var(--white);
   border: 2px solid var(--ink);
   box-shadow: 0 24px 50px rgba(15, 25, 18, 0.28), 0 4px 12px rgba(0, 0, 0, 0.08);
-  padding: 32px 30px;
+  padding: 28px 26px;
   position: relative;
   box-sizing: border-box;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: auto;
 }
 
 .auth-brand-badge {
@@ -1482,23 +1511,38 @@ select.currency-prefix:focus {
   width: 100%;
 }
 
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
 .password-input-wrapper input {
   width: 100%;
-  padding-right: 42px !important;
+  padding-right: 44px !important;
+  box-sizing: border-box;
 }
 
 .btn-toggle-pw {
   position: absolute;
-  right: 8px;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   background: none;
   border: none;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--ink-soft);
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 8px 10px;
+  min-width: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
-  border-radius: 3px;
-  transition: background 0.12s;
+  border-radius: 4px;
+  transition: background 0.12s, color 0.12s;
 }
 
 .btn-toggle-pw:hover {
@@ -1511,8 +1555,10 @@ select.currency-prefix:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: -4px 0 4px;
+  gap: 8px;
+  margin: 4px 0 6px;
   font-size: 13px;
+  flex-wrap: wrap;
 }
 
 .auth-link-btn {
@@ -1523,7 +1569,10 @@ select.currency-prefix:focus {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  padding: 2px 0;
+  padding: 6px 4px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
   text-decoration: underline;
   text-underline-offset: 3px;
   transition: color 0.15s, opacity 0.15s;
@@ -1620,6 +1669,20 @@ select.currency-prefix:focus {
 
 /* Medium Mobile & Small Tablet (<= 640px) */
 @media (max-width: 640px) {
+  /* Prevent iOS Safari auto-zoom on inputs by ensuring font-size >= 16px */
+  input,
+  select,
+  textarea,
+  #expense-form input,
+  #expense-form select,
+  .field-group input,
+  .field-group select,
+  .amount-input-box input,
+  select.currency-prefix,
+  .month-jump-select {
+    font-size: 16px !important;
+  }
+
   .ledger {
     padding: 16px 12px 50px;
   }
@@ -1644,6 +1707,28 @@ select.currency-prefix:focus {
     box-sizing: border-box;
   }
 
+  /* Form inputs touch-friendly */
+  #expense-form input,
+  #expense-form select {
+    padding: 11px 12px;
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+
+  .type-chip {
+    min-height: 42px;
+    padding: 9px 8px;
+    font-size: 12px;
+  }
+
+  .btn-primary {
+    min-height: 44px;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .month-bar {
     display: flex;
     flex-direction: column;
@@ -1660,6 +1745,8 @@ select.currency-prefix:focus {
 
   .month-bar .month-nav {
     flex-shrink: 0;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .month-bar h2 {
@@ -1674,6 +1761,7 @@ select.currency-prefix:focus {
     width: 100%;
     margin-left: 0;
     text-align: center;
+    min-height: 40px;
   }
 
   /* Stats grid */
@@ -1689,6 +1777,7 @@ select.currency-prefix:focus {
   .stat-value {
     font-size: 17px;
     word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .stat-label {
@@ -1717,24 +1806,42 @@ select.currency-prefix:focus {
     display: block;
   }
 
+  .entries-table-container {
+    border-radius: 4px;
+    box-shadow: inset -8px 0 8px -8px rgba(0, 0, 0, 0.15);
+  }
+
   .entries-head,
   .entry-row {
-    min-width: 530px;
+    min-width: 520px;
+  }
+
+  .entry-row {
+    padding: 10px 4px;
+  }
+
+  .row-actions button {
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 15px;
   }
 
   /* Auth & Profile Modals */
+  .auth-backdrop,
+  .modal-backdrop {
+    padding: 12px 10px;
+    align-items: center;
+  }
+
   .auth-card,
   .modal-card {
     padding: 22px 16px;
     margin: auto;
-    max-height: none;
-  }
-
-  /* Ensure auth card doesn't get clipped at top */
-  .auth-backdrop {
-    align-items: flex-start;
-    padding-top: 20px;
-    padding-bottom: 20px;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 6px;
   }
 
   .auth-brand-badge {
@@ -1752,10 +1859,17 @@ select.currency-prefix:focus {
 
   .auth-sub-row {
     font-size: 12px;
+    margin: 6px 0 10px;
   }
 
   .auth-link-btn {
-    font-size: 12px;
+    font-size: 13px;
+    min-height: 36px;
+  }
+
+  .auth-footer-nav {
+    margin-top: 14px;
+    padding-top: 12px;
   }
 
   /* Toast: move to bottom center on mobile */
@@ -1780,7 +1894,7 @@ select.currency-prefix:focus {
 
   .type-chip {
     font-size: 11px;
-    padding: 7px 4px;
+    padding: 8px 4px;
   }
 
   .stat-value {
@@ -1788,7 +1902,7 @@ select.currency-prefix:focus {
   }
 
   .bar-row {
-    grid-template-columns: 90px 1fr 80px;
+    grid-template-columns: 85px 1fr 75px;
     gap: 6px;
   }
 
@@ -1800,6 +1914,11 @@ select.currency-prefix:focus {
   .pill-btn {
     padding: 3px 7px;
     font-size: 11px;
+  }
+
+  .otp-input-field {
+    letter-spacing: 8px !important;
+    font-size: 20px !important;
   }
 }
 

@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const db = require('./db');
 const mailer = require('./mailer');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,12 +30,38 @@ if (!JWT_SECRET) {
 const rawOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:3000';
 const allowedOrigins = rawOrigin.split(',').map((o) => o.trim()).filter(Boolean);
 
+// Check if an origin is from localhost or a private/local network (e.g. mobile on Wi-Fi / hotspot / LAN)
+function isLocalOrLanOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname;
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.endsWith('.local') ||
+      /^192\.168\.\d+\.\d+$/.test(hostname) ||
+      /^10\.\d+\.\d+\.\d+$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no Origin header (same-origin / curl / Render health checks)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin '${origin}' not allowed.`));
+    if (allowedOrigins.includes(origin) || isLocalOrLanOrigin(origin)) {
+      return callback(null, true);
+    }
+    // In local development, also allow matching local requests
+    if (!process.env.RENDER && process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    // Return standard CORS denial without throwing an uncaught 500 error
+    callback(null, false);
   },
   credentials: true
 }));
@@ -545,9 +572,29 @@ app.delete('/api/expenses/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, () => {
+// Helper to find local IPv4 network addresses for mobile access
+function getLocalNetworkIps() {
+  const nets = os.networkInterfaces();
+  const results = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        results.push(net.address);
+      }
+    }
+  }
+  return results;
+}
+
+// Start server — bind to 0.0.0.0 so mobile devices on local network can connect
+app.listen(PORT, '0.0.0.0', () => {
   const isLocal = !process.env.RENDER;
   console.log(`✅ EXPTRACK server running on port ${PORT}${isLocal ? ` → http://localhost:${PORT}` : ''}`);
+  if (isLocal) {
+    const localIps = getLocalNetworkIps();
+    localIps.forEach((ip) => {
+      console.log(`📱 Mobile / LAN access: http://${ip}:${PORT}`);
+    });
+  }
   mailer.verifyTransporter().catch((err) => console.warn('Mailer verify notice:', err.message));
 });

@@ -952,6 +952,15 @@ function initGoogleSignIn() {
       googleSignInInitialized = true;
     }
 
+    const getResponsiveWidth = (container) => {
+      if (!container) return 300;
+      const parentWidth = container.parentElement ? container.parentElement.clientWidth : container.clientWidth;
+      if (parentWidth && parentWidth < 340) {
+        return Math.max(220, Math.floor(parentWidth - 10));
+      }
+      return 320;
+    };
+
     if (el.googleLoginContainer && el.googleLoginContainer.childElementCount === 0) {
       google.accounts.id.renderButton(el.googleLoginContainer, {
         theme: 'outline',
@@ -960,7 +969,7 @@ function initGoogleSignIn() {
         shape: 'rectangular',
         text: 'continue_with',
         logo_alignment: 'left',
-        width: 320
+        width: getResponsiveWidth(el.googleLoginContainer)
       });
     }
 
@@ -972,7 +981,7 @@ function initGoogleSignIn() {
         shape: 'rectangular',
         text: 'continue_with',
         logo_alignment: 'left',
-        width: 320
+        width: getResponsiveWidth(el.googleRegisterContainer)
       });
     }
   } catch (err) {
@@ -1075,6 +1084,12 @@ el.profileCloseBtn.addEventListener('click', closeModals);
 
 window.addEventListener('click', (e) => {
   if (e.target === el.profileModal) {
+    closeModals();
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
     closeModals();
   }
 });
